@@ -154,9 +154,9 @@ impl NodeRole {
                 let downstream_count = analysis.downstream.len();
 
                 // Adapters typically have few callers but many dependencies (or vice versa)
-                if upstream_count <= 2 && downstream_count > 5 {
-                    NodeRole::Adapter
-                } else if downstream_count <= 2 && upstream_count > 5 {
+                if (upstream_count <= 2 && downstream_count > 5)
+                    || (downstream_count <= 2 && upstream_count > 5)
+                {
                     NodeRole::Adapter
                 } else {
                     NodeRole::CoreLogic

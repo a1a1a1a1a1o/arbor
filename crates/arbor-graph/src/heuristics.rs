@@ -66,7 +66,7 @@ impl HeuristicsMatcher {
     pub fn is_react_component(node: &CodeNode) -> bool {
         (node.kind == NodeKind::Function || node.kind == NodeKind::Class)
             && node.file.ends_with(".tsx")
-            && node.name.chars().next().map_or(false, |c| c.is_uppercase())
+            && node.name.chars().next().is_some_and(|c| c.is_uppercase())
     }
 
     /// Check if a node looks like an event handler

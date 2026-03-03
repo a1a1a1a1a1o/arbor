@@ -65,7 +65,7 @@ impl McpServer {
             };
 
             if let Some(node) = node {
-                handle.spotlight_node(&node.id, &node.file, node.line_start as u32);
+                handle.spotlight_node(&node.id, &node.file, node.line_start);
                 eprintln!("🔦 Spotlight: {} in {}", node.name, node.file);
             }
         }
@@ -135,9 +135,7 @@ impl McpServer {
             }),
         };
 
-        if id.is_none() {
-            return None;
-        }
+        id.as_ref()?;
 
         Some(match result {
             Ok(val) => JsonRpcResponse {
@@ -425,8 +423,8 @@ impl McpServer {
         let mut brief = String::new();
 
         brief.push_str(&format!("# Architectural Brief: `{}`\n\n", node.name));
-        brief.push_str(&format!("| Property | Value |\n"));
-        brief.push_str(&format!("|----------|-------|\n"));
+        brief.push_str("| Property | Value |\n");
+        brief.push_str("|----------|-------|\n");
         brief.push_str(&format!("| **Type** | {} |\n", node.kind));
         brief.push_str(&format!("| **File** | `{}` |\n", node.file));
         brief.push_str(&format!("| **Impact Level** | {:.2} |\n", centrality));

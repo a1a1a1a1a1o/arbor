@@ -101,7 +101,7 @@ fn estimate_tokens(node: &NodeInfo) -> usize {
 
     // Performance guardrail: use heuristic for very large content
     if estimated_chars > LARGE_FILE_THRESHOLD {
-        return (estimated_chars + 3) / 4; // Heuristic fallback
+        return estimated_chars.div_ceil(4); // Heuristic fallback
     }
 
     // Build text representation for accurate tokenization

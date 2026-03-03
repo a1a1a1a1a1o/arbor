@@ -96,18 +96,26 @@ arbor gui
    cargo install arbor-graph-cli
    ```
 
-2. **Run Impact Analysis**:
+2. **One-shot setup + first index**:
+
+  ```bash
+  cd your-project
+  arbor setup
+  ```
+
+3. **Run Impact Analysis**:
 
    ```bash
-   cd your-project
    arbor refactor <symbol-name>
    ```
 
-3. **Launch the GUI**:
+4. **Launch the GUI**:
 
    ```bash
    arbor gui
    ```
+
+> You can run Arbor from any nested subdirectory; it automatically resolves to your project root.
 
 📘 See the [Quickstart Guide](docs/QUICKSTART.md) for advanced workflows.
 
@@ -226,6 +234,10 @@ sudo apt-get install -y pkg-config libx11-dev libxcb-shape0-dev libxcb-xfixes0-d
 ### Empty graph?
 
 Run `arbor status` to verify file detection and parser health.
+
+### Need environment diagnostics?
+
+Run `arbor doctor` (or `arbor check-health`) to verify ports, project structure, and integration readiness.
 
 ---
 
