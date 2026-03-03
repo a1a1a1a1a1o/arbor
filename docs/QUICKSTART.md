@@ -10,7 +10,7 @@ cargo install arbor-graph-cli
 
 > **Note:** The GUI is included in the binary. Run `arbor gui` after installation.
 
-## Initialize
+## Initialize (Optional)
 
 ```bash
 cd your-project
@@ -19,6 +19,8 @@ arbor init
 
 This creates `.arbor/` with default configuration.
 
+> Prefer a one-shot start? Use `arbor setup` to initialize and index in a single command.
+
 ## Index
 
 ```bash
@@ -26,6 +28,8 @@ arbor index
 ```
 
 Parses your codebase and builds a relationship graph. Subsequent runs use caching for faster updates.
+
+> If `.arbor/` doesn't exist, Arbor now auto-creates it on first index/query/refactor/explain.
 
 ## Query
 
@@ -38,6 +42,9 @@ arbor status --files
 
 # Search for a symbol
 arbor query parse_file
+
+# Search in a different path
+arbor query parse_file ../another-project
 
 # Get refactoring context
 arbor refactor UserService
@@ -109,6 +116,14 @@ Generates a Markdown summary of impact for multiple changed symbols.
 | `--depth N` | Set impact analysis depth (default: 5) |
 | `--why` | Show detailed reasoning for each affected node |
 | `--json` | Output as JSON instead of formatted text |
+
+## Health Check
+
+```bash
+arbor doctor
+```
+
+Runs environment diagnostics (ports, workspace layout, visualizer and extension presence).
 
 ## Next Steps
 

@@ -6,33 +6,112 @@ use arbor_watcher::{index_directory, IndexOptions};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+const ROOT_MARKERS: &[&str] = &[
+    ".arbor",
+    ".git",
+    "Cargo.toml",
+    "package.json",
+    "pyproject.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "pubspec.yaml",
+];
+
+fn find_workspace_root(start: &Path) -> PathBuf {
+    let mut current = fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    if current.is_file() {
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        }
+    }
+
+    let mut best = current.clone();
+    loop {
+        if ROOT_MARKERS
+            .iter()
+            .any(|marker| current.join(marker).exists())
+        {
+            best = current.clone();
+        }
+
+        match current.parent() {
+            Some(parent) => current = parent.to_path_buf(),
+            None => break,
+        }
+    }
+
+    best
+}
+
+fn resolve_project_path(path: &Path) -> Result<PathBuf> {
+    let base = if path == Path::new(".") {
+        std::env::current_dir()?
+    } else {
+        path.to_path_buf()
+    };
+    Ok(find_workspace_root(&base))
+}
+
+fn ensure_arbor_initialized(path: &Path) -> Result<bool> {
+    let arbor_dir = path.join(".arbor");
+    let config_path = arbor_dir.join("config.json");
+
+    if !arbor_dir.exists() {
+        fs::create_dir_all(&arbor_dir)?;
+    }
+
+    if !config_path.exists() {
+        let default_config = serde_json::json!({
+            "version": "1.0",
+            "languages": [
+                "typescript",
+                "javascript",
+                "rust",
+                "python",
+                "go",
+                "java",
+                "c",
+                "cpp",
+                "csharp",
+                "dart"
+            ],
+            "ignore": ["node_modules", "target", "dist", "__pycache__", ".venv", "build", "out"]
+        });
+        fs::write(&config_path, serde_json::to_string_pretty(&default_config)?)?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 /// Initialize Arbor in a directory.
 pub fn init(path: &Path) -> Result<()> {
-    let arbor_dir = path.join(".arbor");
+    let resolved_path = resolve_project_path(path)?;
+    let arbor_dir = resolved_path.join(".arbor");
 
     if arbor_dir.exists() {
-        println!("{} Already initialized", "✓".green());
+        println!(
+            "{} Already initialized at {}",
+            "✓".green(),
+            resolved_path.display()
+        );
         return Ok(());
     }
 
-    fs::create_dir_all(&arbor_dir)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
 
-    // Create a default config file
-    let config_path = arbor_dir.join("config.json");
-    let default_config = serde_json::json!({
-        "version": "1.0",
-        "languages": ["typescript", "rust", "python"],
-        "ignore": ["node_modules", "target", "dist", "__pycache__"]
-    });
-
-    fs::write(&config_path, serde_json::to_string_pretty(&default_config)?)?;
-
-    println!("{} Initialized Arbor in {}", "✓".green(), path.display());
+    println!(
+        "{} Initialized Arbor in {}",
+        "✓".green(),
+        resolved_path.display()
+    );
     println!("  Run {} to index your codebase", "arbor index".cyan());
 
     Ok(())
@@ -45,6 +124,16 @@ pub fn index(
     follow_symlinks: bool,
     no_cache: bool,
 ) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let was_initialized = ensure_arbor_initialized(&resolved_path)?;
+    if was_initialized {
+        println!(
+            "{} Created {} for first-time setup",
+            "✓".green(),
+            resolved_path.join(".arbor").display()
+        );
+    }
+
     println!("{}", "Indexing codebase...".cyan());
 
     let spinner = ProgressBar::new_spinner();
@@ -56,14 +145,14 @@ pub fn index(
     let cache_path = if no_cache {
         None
     } else {
-        Some(path.join(".arbor").join("cache"))
+        Some(resolved_path.join(".arbor").join("cache"))
     };
 
     let options = IndexOptions {
         follow_symlinks,
         cache_path,
     };
-    let result = index_directory(path, options)?;
+    let result = index_directory(&resolved_path, options)?;
 
     spinner.finish_and_clear();
 
@@ -127,12 +216,10 @@ fn export_graph(graph: &arbor_graph::ArborGraph, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Query the code graph.
-pub fn query(query: &str, limit: usize) -> Result<()> {
-    // For now, we need to re-index. In a real implementation,
-    // we'd load from a persisted graph or connect to the server.
-    let path = std::env::current_dir()?;
-    let result = index_directory(&path, IndexOptions::default())?;
+pub fn query(query: &str, limit: usize, path: &Path) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
 
     let matches: Vec<_> = result.graph.search(query).into_iter().take(limit).collect();
 
@@ -160,6 +247,8 @@ pub fn query(query: &str, limit: usize) -> Result<()> {
 
 /// Start the Arbor server.
 pub async fn serve(port: u16, headless: bool, path: &Path, follow_symlinks: bool) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
     let bind_addr = if headless { "0.0.0.0" } else { "127.0.0.1" };
 
     if headless {
@@ -173,7 +262,7 @@ pub async fn serve(port: u16, headless: bool, path: &Path, follow_symlinks: bool
         follow_symlinks,
         cache_path: None,
     };
-    let result = index_directory(path, options)?;
+    let result = index_directory(&resolved_path, options)?;
     let mut graph = result.graph;
 
     // Compute centrality
@@ -204,6 +293,8 @@ pub async fn serve(port: u16, headless: bool, path: &Path, follow_symlinks: bool
 
 /// Start the Arbor Visualizer.
 pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
     println!("{}", "Starting Arbor Visualizer stack...".cyan());
 
     // 1. Index Codebase
@@ -211,7 +302,7 @@ pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
         follow_symlinks,
         cache_path: None,
     };
-    let result = index_directory(path, options)?;
+    let result = index_directory(&resolved_path, options)?;
     let mut graph = result.graph;
 
     // Compute centrality for better initial layout
@@ -238,14 +329,26 @@ pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
     let sync_addr = format!("127.0.0.1:{}", sync_port).parse()?;
     let sync_config = arbor_server::SyncServerConfig {
         addr: sync_addr,
-        watch_path: path.to_path_buf(),
+        watch_path: resolved_path.to_path_buf(),
         debounce_ms: 1000,
         extensions: vec![
             "ts".to_string(),
             "tsx".to_string(),
+            "js".to_string(),
+            "jsx".to_string(),
             "rs".to_string(),
             "py".to_string(),
             "dart".to_string(),
+            "go".to_string(),
+            "java".to_string(),
+            "c".to_string(),
+            "h".to_string(),
+            "cpp".to_string(),
+            "hpp".to_string(),
+            "cc".to_string(),
+            "cxx".to_string(),
+            "hh".to_string(),
+            "cs".to_string(),
         ],
     };
     let sync_server = arbor_server::SyncServer::new_with_shared(sync_config, shared_graph.clone());
@@ -269,7 +372,7 @@ pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
     // 4. Launch Visualizer
     // Priority 1: Standalone bundled executable (relative to arbor binary)
     let current_exe = std::env::current_exe()?;
-    let exe_dir = current_exe.parent().unwrap_or(path);
+    let exe_dir = current_exe.parent().unwrap_or(&resolved_path);
 
     #[cfg(target_os = "windows")]
     let bundled_viz = exe_dir.join("arbor_visualizer").join("visualizer.exe");
@@ -295,7 +398,7 @@ pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
         }
     } else {
         // Priority 2: Source code (Flutter dev mode)
-        let viz_dir = path.join("visualizer");
+        let viz_dir = resolved_path.join("visualizer");
         if viz_dir.exists() {
             println!("{}", "Launching Flutter Visualizer (Dev Mode)...".cyan());
 
@@ -331,23 +434,27 @@ pub async fn viz(path: &Path, follow_symlinks: bool) -> Result<()> {
 
 /// Export the graph to JSON.
 pub fn export(path: &Path, output: &Path) -> Result<()> {
-    let result = index_directory(path, IndexOptions::default())?;
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
     export_graph(&result.graph, output)?;
     Ok(())
 }
 
 /// Show index status.
 pub fn status(path: &Path, show_files: bool) -> Result<()> {
-    let arbor_dir = path.join(".arbor");
-
-    if !arbor_dir.exists() {
-        println!("{} Arbor not initialized in this directory", "✗".red());
-        println!("  Run {} to initialize", "arbor init".cyan());
-        return Ok(());
+    let resolved_path = resolve_project_path(path)?;
+    let was_initialized = ensure_arbor_initialized(&resolved_path)?;
+    if was_initialized {
+        println!(
+            "{} Auto-initialized Arbor at {}",
+            "✓".green(),
+            resolved_path.join(".arbor").display()
+        );
     }
 
     // Quick index to get stats
-    let result = index_directory(path, IndexOptions::default())?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
 
     // Collect unique files from indexed nodes
     let files: std::collections::HashSet<_> =
@@ -437,6 +544,9 @@ pub fn status(path: &Path, show_files: bool) -> Result<()> {
 pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Result<()> {
     use arbor_mcp::McpServer;
 
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+
     eprintln!("{} Arbor Bridge (MCP Mode)", "🔗".bold().cyan());
 
     // 1. Create Shared Graph (Empty initially)
@@ -444,10 +554,10 @@ pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Res
     let shared_graph = std::sync::Arc::new(tokio::sync::RwLock::new(graph));
 
     // 2. Run Initial Index (Blocking)
-    let index_path = path.to_path_buf();
+    let index_path = resolved_path.to_path_buf();
     let options = IndexOptions {
         follow_symlinks,
-        cache_path: Some(path.join(".arbor").join("cache")),
+        cache_path: Some(resolved_path.join(".arbor").join("cache")),
     };
     eprintln!("{} Starting initial index...", "⏳".yellow());
 
@@ -492,13 +602,26 @@ pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Res
 
     let sync_config = arbor_server::SyncServerConfig {
         addr: format!("127.0.0.1:{}", sync_port).parse()?,
-        watch_path: path.to_path_buf(),
+        watch_path: resolved_path.to_path_buf(),
         debounce_ms: 1000,
         extensions: vec![
             "rs".to_string(),
             "ts".to_string(),
+            "tsx".to_string(),
+            "js".to_string(),
+            "jsx".to_string(),
             "py".to_string(),
             "dart".to_string(),
+            "go".to_string(),
+            "java".to_string(),
+            "c".to_string(),
+            "h".to_string(),
+            "cpp".to_string(),
+            "hpp".to_string(),
+            "cc".to_string(),
+            "cxx".to_string(),
+            "hh".to_string(),
+            "cs".to_string(),
         ],
     };
 
@@ -528,8 +651,8 @@ pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Res
     // 3. Optionally launch the visualizer
     if launch_viz {
         // Try to find visualizer in target path or parent (workspace root)
-        let viz_dir = if path.join("visualizer").exists() {
-            Some(path.join("visualizer"))
+        let viz_dir = if resolved_path.join("visualizer").exists() {
+            Some(resolved_path.join("visualizer"))
         } else if Path::new("../visualizer").exists() {
             Some(Path::new("../visualizer").to_path_buf())
         } else {
@@ -576,7 +699,7 @@ pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Res
 }
 
 /// Check system health and environment.
-pub async fn check_health() -> Result<()> {
+pub async fn check_health(path: Option<&Path>) -> Result<()> {
     use std::net::TcpListener;
 
     println!("{}", "🔍 Arbor Health Check".cyan().bold());
@@ -585,13 +708,10 @@ pub async fn check_health() -> Result<()> {
     let mut all_ok = true;
 
     // Detect workspace root (if we're in crates/, go up one level)
-    let workspace_root = if Path::new("Cargo.toml").exists() && Path::new("../visualizer").exists()
-    {
-        Path::new("..").to_path_buf()
-    } else if Path::new("crates").exists() {
-        Path::new(".").to_path_buf()
+    let workspace_root = if let Some(input_path) = path {
+        resolve_project_path(input_path)?
     } else {
-        Path::new(".").to_path_buf()
+        resolve_project_path(Path::new("."))?
     };
 
     // 1. Check Cargo.toml presence (Rust workspace)
@@ -658,11 +778,16 @@ pub async fn check_health() -> Result<()> {
     Ok(())
 }
 
-/// Preview blast radius before refactoring a node.
-pub fn refactor(target: &str, max_depth: usize, show_why: bool, json_output: bool) -> Result<()> {
-    // Load the graph by indexing current directory
-    let path = std::env::current_dir()?;
-    let result = index_directory(&path, IndexOptions::default())?;
+pub fn refactor(
+    target: &str,
+    max_depth: usize,
+    show_why: bool,
+    json_output: bool,
+    path: &Path,
+) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
     let graph = result.graph;
 
     // Find the target node
@@ -1118,11 +1243,16 @@ fn suggest_similar_symbols(graph: &arbor_graph::ArborGraph, target: &str) -> Res
     Ok(())
 }
 
-/// Explain code using graph-backed context.
-pub fn explain(question: &str, max_tokens: usize, show_why: bool, json_output: bool) -> Result<()> {
-    // Load the graph by indexing current directory
-    let path = std::env::current_dir()?;
-    let result = index_directory(&path, IndexOptions::default())?;
+pub fn explain(
+    question: &str,
+    max_tokens: usize,
+    show_why: bool,
+    json_output: bool,
+    path: &Path,
+) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
     let graph = result.graph;
 
     // Try to find a node matching the question (could be a function name)
@@ -1220,10 +1350,12 @@ pub fn explain(question: &str, max_tokens: usize, show_why: bool, json_output: b
 
 /// Launch the graphical interface.
 pub fn gui(path: &Path) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
     println!("{} Launching Arbor GUI...", "🌲".green());
 
     // Set the working directory for the GUI
-    std::env::set_current_dir(path)?;
+    std::env::set_current_dir(&resolved_path)?;
 
     // Find the arbor-gui executable
     let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
@@ -1249,7 +1381,7 @@ pub fn gui(path: &Path) -> Result<()> {
         println!("  Running in development mode...");
         std::process::Command::new("cargo")
             .args(["run", "--package", "arbor-gui"])
-            .current_dir(path)
+            .current_dir(&resolved_path)
             .spawn()
             .map_err(|e| format!("Failed to launch GUI: {}", e))?;
     }
@@ -1263,7 +1395,9 @@ pub fn pr_summary(symbols: &str, path: &Path) -> Result<()> {
     println!();
 
     // Index the codebase
-    let result = index_directory(path, IndexOptions::default())?;
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let result = index_directory(&resolved_path, IndexOptions::default())?;
     let graph = result.graph;
 
     let symbol_list: Vec<&str> = symbols.split(',').map(|s| s.trim()).collect();
@@ -1315,12 +1449,15 @@ pub fn pr_summary(symbols: &str, path: &Path) -> Result<()> {
 pub async fn watch(path: &Path) -> Result<()> {
     use std::time::Duration;
 
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+
     println!("{}", "👁️  Watch Mode".cyan().bold());
-    println!("Watching: {}", path.display());
+    println!("Watching: {}", resolved_path.display());
     println!("Press Ctrl+C to stop.\n");
 
     // Initial index
-    let mut last_result = index_directory(path, IndexOptions::default())?;
+    let mut last_result = index_directory(&resolved_path, IndexOptions::default())?;
     println!(
         "✓ Initial index: {} files, {} nodes",
         last_result.files_indexed, last_result.nodes_extracted
@@ -1330,7 +1467,7 @@ pub async fn watch(path: &Path) -> Result<()> {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Re-index and check for changes
-        match index_directory(path, IndexOptions::default()) {
+        match index_directory(&resolved_path, IndexOptions::default()) {
             Ok(result) => {
                 if result.nodes_extracted != last_result.nodes_extracted
                     || result.files_indexed != last_result.files_indexed
@@ -1456,8 +1593,10 @@ mod tests {
 
 /// Perform a security audit to find paths to a sensitive sink.
 pub fn audit(sink: &str, depth: usize, format: &str, path: &Path) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+
     // 1. Load the graph
-    let graph = load_graph(path)?;
+    let graph = load_graph(&resolved_path)?;
     println!(
         "{} Auditing security paths to sink: {}",
         "🔍".cyan(),
@@ -1523,14 +1662,10 @@ pub fn audit(sink: &str, depth: usize, format: &str, path: &Path) -> Result<()> 
     // Summary box
     println!("\n{}", "┌─ Audit Summary ─────────────────────┐".dimmed());
     println!(
-        "│  {} Critical: {}  {} High: {}  {} Medium: {}  {} Low: {}",
-        "🔴",
+        "│  🔴 Critical: {}  🟠 High: {}  🟡 Medium: {}  🟢 Low: {}",
         result.summary.critical_count,
-        "🟠",
         result.summary.high_count,
-        "🟡",
         result.summary.medium_count,
-        "🟢",
         result.summary.low_count
     );
     println!(

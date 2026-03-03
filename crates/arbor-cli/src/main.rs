@@ -27,6 +27,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// One-shot setup (init + index)
+    Setup {
+        /// Path to set up (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Follow symbolic links when walking directories
+        #[arg(long)]
+        follow_symlinks: bool,
+
+        /// Disable caching (force full re-index)
+        #[arg(long)]
+        no_cache: bool,
+    },
+
     /// Initialize Arbor in the current directory
     Init {
         /// Path to initialize (defaults to current directory)
@@ -57,6 +72,10 @@ enum Commands {
     Query {
         /// Search query
         query: String,
+
+        /// Path to index/search (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
 
         /// Maximum results to return
         #[arg(short, long, default_value = "10")]
@@ -131,13 +150,21 @@ enum Commands {
     },
 
     /// Check system health and environment
-    #[command(hide = true)]
-    CheckHealth,
+    #[command(visible_alias = "check-health")]
+    Doctor {
+        /// Path to diagnose (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 
     /// Preview blast radius before refactoring a node
     Refactor {
         /// The node to analyze (function name, class name, or qualified path)
         target: String,
+
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
 
         /// Maximum depth to search (default: 5)
         #[arg(short, long, default_value = "5")]
@@ -156,6 +183,10 @@ enum Commands {
     Explain {
         /// The question or code path to explain
         question: String,
+
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
 
         /// Maximum tokens for context (default: 4000)
         #[arg(short, long, default_value = "4000")]
@@ -229,6 +260,12 @@ async fn main() {
         .init();
 
     let result = match cli.command {
+        Commands::Setup {
+            path,
+            follow_symlinks,
+            no_cache,
+        } => commands::init(&path)
+            .and_then(|_| commands::index(&path, None, follow_symlinks, no_cache)),
         Commands::Init { path } => commands::init(&path),
         Commands::Index {
             path,
@@ -236,7 +273,7 @@ async fn main() {
             follow_symlinks,
             no_cache,
         } => commands::index(&path, output.as_deref(), follow_symlinks, no_cache),
-        Commands::Query { query, limit } => commands::query(&query, limit),
+        Commands::Query { query, path, limit } => commands::query(&query, limit, &path),
         Commands::Serve {
             port,
             headless,
@@ -254,19 +291,21 @@ async fn main() {
             viz,
             follow_symlinks,
         } => commands::bridge(&path, viz, follow_symlinks).await,
-        Commands::CheckHealth => commands::check_health().await,
+        Commands::Doctor { path } => commands::check_health(Some(&path)).await,
         Commands::Refactor {
             target,
+            path,
             depth,
             why,
             json,
-        } => commands::refactor(&target, depth, why, json),
+        } => commands::refactor(&target, depth, why, json, &path),
         Commands::Explain {
             question,
+            path,
             tokens,
             why,
             json,
-        } => commands::explain(&question, tokens, why, json),
+        } => commands::explain(&question, tokens, why, json, &path),
         Commands::Gui { path } => commands::gui(&path),
         Commands::PrSummary { symbols, path } => commands::pr_summary(&symbols, &path),
         Commands::Watch { path } => commands::watch(&path).await,

@@ -349,7 +349,6 @@ async fn handle_client(
     use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
     let config = WebSocketConfig {
-        max_send_queue: None,
         max_message_size: Some(64 * 1024 * 1024), // 64 MB
         max_frame_size: Some(64 * 1024 * 1024),   // 64 MB
         accept_unmasked_frames: false,
