@@ -44,6 +44,11 @@ arbor index
 
 Parses your codebase and builds a relationship graph. Subsequent runs use caching for faster updates.
 
+```bash
+# Fast refresh during active refactors
+arbor index --changed-only
+```
+
 > If `.arbor/` doesn't exist, Arbor now auto-creates it on first index/query/refactor/explain.
 
 ## Query
@@ -66,6 +71,15 @@ arbor refactor UserService
 
 # Explain a function's dependencies
 arbor explain validate_input
+
+# Preview impact for current git diff
+arbor diff
+
+# CI safety gate (fails on risky blast radius)
+arbor check --max-blast-radius 30
+
+# Jump directly to a symbol in your editor
+arbor open parse_file
 ```
 
 ## Use the GUI

@@ -50,7 +50,11 @@ arbor bridge --viz
 | `arbor setup` | One-shot setup (init + index) |
 | `arbor init` | Creates `.arbor/` config directory |
 | `arbor index` | Full index of the codebase |
+| `arbor index --changed-only` | Incremental index of git-modified files |
 | `arbor query <q>` | Search the graph |
+| `arbor diff` | Preview blast radius for current git changes |
+| `arbor check` | CI safety gate for risky change sets |
+| `arbor open <symbol>` | Open symbol/file in your editor |
 | `arbor serve` | Start the WebSocket server |
 | `arbor bridge` | Start MCP server for AI integration |
 | `arbor bridge --viz` | MCP + Visualizer together |

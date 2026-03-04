@@ -116,6 +116,14 @@ arbor gui
    arbor refactor <symbol-name>
    ```
 
+  For git-aware workflows:
+
+  ```bash
+  arbor diff
+  arbor check --max-blast-radius 30
+  arbor open <symbol>
+  ```
+
 4. **Launch the GUI**:
 
    ```bash
