@@ -95,6 +95,10 @@ fn graph_snapshot_path(path: &Path) -> PathBuf {
     path.join(".arbor").join("graph.json")
 }
 
+fn graph_store_path(path: &Path) -> PathBuf {
+    path.join(".arbor").join("cache")
+}
+
 fn save_graph_snapshot(path: &Path, graph: &arbor_graph::ArborGraph) -> Result<()> {
     let graph_path = graph_snapshot_path(path);
     if let Some(parent) = graph_path.parent() {
@@ -124,8 +128,34 @@ fn load_graph_snapshot(path: &Path) -> Result<arbor_graph::ArborGraph> {
     Ok(graph)
 }
 
+fn load_graph_from_store(path: &Path) -> Result<arbor_graph::ArborGraph> {
+    let store_path = graph_store_path(path);
+    if !store_path.exists() {
+        return Err("No graph store cache found".into());
+    }
+
+    let store = arbor_graph::GraphStore::open_or_reset(&store_path)
+        .map_err(|e| format!("Failed to open graph store: {}", e))?;
+
+    let graph = store
+        .load_graph()
+        .map_err(|e| format!("Failed to load graph from store: {}", e))?;
+
+    if graph.node_count() == 0 {
+        return Err("Graph store was empty".into());
+    }
+
+    Ok(graph)
+}
+
 fn load_or_index_graph(path: &Path) -> Result<arbor_graph::ArborGraph> {
     if let Ok(graph) = load_graph_snapshot(path) {
+        return Ok(graph);
+    }
+
+    if let Ok(graph) = load_graph_from_store(path) {
+        // Materialize JSON snapshot for faster future warm starts.
+        let _ = save_graph_snapshot(path, &graph);
         return Ok(graph);
     }
 
