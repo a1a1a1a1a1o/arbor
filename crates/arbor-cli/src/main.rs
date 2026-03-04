@@ -55,6 +55,10 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
 
+        /// Index only files changed in git (faster incremental refresh)
+        #[arg(long)]
+        changed_only: bool,
+
         /// Output file for the graph JSON
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -80,6 +84,44 @@ enum Commands {
         /// Maximum results to return
         #[arg(short, long, default_value = "10")]
         limit: usize,
+    },
+
+    /// Analyze git changes and preview impact blast radius
+    Diff {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Maximum impact traversal depth
+        #[arg(short, long, default_value = "5")]
+        depth: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// CI safety mode for changed code paths
+    Check {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Maximum impact traversal depth
+        #[arg(short, long, default_value = "5")]
+        depth: usize,
+
+        /// Blast radius threshold considered risky
+        #[arg(long, default_value = "25")]
+        max_blast_radius: usize,
+
+        /// Do not fail with non-zero exit code on risky changes
+        #[arg(long)]
+        no_fail: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Start the Arbor server
@@ -201,6 +243,16 @@ enum Commands {
         json: bool,
     },
 
+    /// Open a symbol location in your editor
+    Open {
+        /// Symbol name, qualified id, or file path
+        symbol: String,
+
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+
     /// Launch the graphical interface
     Gui {
         /// Path to analyze (defaults to current directory)
@@ -265,15 +317,30 @@ async fn main() {
             follow_symlinks,
             no_cache,
         } => commands::init(&path)
-            .and_then(|_| commands::index(&path, None, follow_symlinks, no_cache)),
+            .and_then(|_| commands::index(&path, None, follow_symlinks, no_cache, false)),
         Commands::Init { path } => commands::init(&path),
         Commands::Index {
             path,
+            changed_only,
             output,
             follow_symlinks,
             no_cache,
-        } => commands::index(&path, output.as_deref(), follow_symlinks, no_cache),
+        } => commands::index(
+            &path,
+            output.as_deref(),
+            follow_symlinks,
+            no_cache,
+            changed_only,
+        ),
         Commands::Query { query, path, limit } => commands::query(&query, limit, &path),
+        Commands::Diff { path, depth, json } => commands::diff(&path, depth, json),
+        Commands::Check {
+            path,
+            depth,
+            max_blast_radius,
+            no_fail,
+            json,
+        } => commands::check(&path, depth, max_blast_radius, no_fail, json),
         Commands::Serve {
             port,
             headless,
@@ -306,6 +373,7 @@ async fn main() {
             why,
             json,
         } => commands::explain(&question, tokens, why, json, &path),
+        Commands::Open { symbol, path } => commands::open(&symbol, &path),
         Commands::Gui { path } => commands::gui(&path),
         Commands::PrSummary { symbols, path } => commands::pr_summary(&symbols, &path),
         Commands::Watch { path } => commands::watch(&path).await,
