@@ -1,5 +1,6 @@
 //! CLI command implementations.
 
+use arbor_core::parse_file;
 use arbor_graph::compute_centrality;
 use arbor_server::{ArborServer, ServerConfig};
 use arbor_watcher::{index_directory, IndexOptions};
@@ -7,9 +8,21 @@ use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+#[derive(Debug)]
+struct DiffSummary {
+    changed_files: Vec<String>,
+    changed_symbols: usize,
+    direct_callers: usize,
+    indirect_callers: usize,
+    entrypoints_affected: usize,
+    files_likely_updates: usize,
+    blast_radius_nodes: usize,
+}
 
 const ROOT_MARKERS: &[&str] = &[
     ".arbor",
@@ -95,6 +108,10 @@ fn graph_snapshot_path(path: &Path) -> PathBuf {
     path.join(".arbor").join("graph.json")
 }
 
+fn graph_binary_path(path: &Path) -> PathBuf {
+    path.join(".arbor").join("graph.bin")
+}
+
 fn graph_store_path(path: &Path) -> PathBuf {
     path.join(".arbor").join("cache")
 }
@@ -108,6 +125,17 @@ fn save_graph_snapshot(path: &Path, graph: &arbor_graph::ArborGraph) -> Result<(
     let file = std::fs::File::create(&graph_path)?;
     let writer = std::io::BufWriter::new(file);
     serde_json::to_writer_pretty(writer, graph)?;
+    Ok(())
+}
+
+fn save_graph_binary(path: &Path, graph: &arbor_graph::ArborGraph) -> Result<()> {
+    let graph_path = graph_binary_path(path);
+    if let Some(parent) = graph_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let bytes = bincode::serialize(graph)?;
+    fs::write(graph_path, bytes)?;
     Ok(())
 }
 
@@ -125,6 +153,17 @@ fn load_graph_snapshot(path: &Path) -> Result<arbor_graph::ArborGraph> {
     let file = std::fs::File::open(&graph_path)?;
     let reader = std::io::BufReader::new(file);
     let graph: arbor_graph::ArborGraph = serde_json::from_reader(reader)?;
+    Ok(graph)
+}
+
+fn load_graph_binary(path: &Path) -> Result<arbor_graph::ArborGraph> {
+    let graph_path = graph_binary_path(path);
+    if !graph_path.exists() {
+        return Err(format!("Binary graph not found at {}", graph_path.display()).into());
+    }
+
+    let bytes = fs::read(graph_path)?;
+    let graph: arbor_graph::ArborGraph = bincode::deserialize(&bytes)?;
     Ok(graph)
 }
 
@@ -149,6 +188,10 @@ fn load_graph_from_store(path: &Path) -> Result<arbor_graph::ArborGraph> {
 }
 
 fn load_or_index_graph(path: &Path) -> Result<arbor_graph::ArborGraph> {
+    if let Ok(graph) = load_graph_binary(path) {
+        return Ok(graph);
+    }
+
     if let Ok(graph) = load_graph_snapshot(path) {
         return Ok(graph);
     }
@@ -156,12 +199,231 @@ fn load_or_index_graph(path: &Path) -> Result<arbor_graph::ArborGraph> {
     if let Ok(graph) = load_graph_from_store(path) {
         // Materialize JSON snapshot for faster future warm starts.
         let _ = save_graph_snapshot(path, &graph);
+        let _ = save_graph_binary(path, &graph);
         return Ok(graph);
     }
 
     let result = index_directory(path, IndexOptions::default())?;
     save_graph_snapshot(path, &result.graph)?;
+    save_graph_binary(path, &result.graph)?;
     Ok(result.graph)
+}
+
+fn run_git(path: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git").args(args).current_dir(path).output()?;
+    if !output.status.success() {
+        return Err(format!("git {:?} failed", args).into());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn is_git_repo(path: &Path) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn git_changed_files(path: &Path) -> Result<Vec<String>> {
+    if !is_git_repo(path) {
+        return Ok(Vec::new());
+    }
+
+    let mut files = run_git(path, &["diff", "--name-only", "HEAD"])?
+        .lines()
+        .map(|s| s.trim().replace('\\', "/"))
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+fn normalize_slashes(input: &str) -> String {
+    input.replace('\\', "/")
+}
+
+fn node_matches_changed_file(node_file: &str, changed_file: &str, project_root: &Path) -> bool {
+    let node_norm = normalize_slashes(node_file);
+    let changed_norm = normalize_slashes(changed_file);
+
+    if node_norm.ends_with(&changed_norm) {
+        return true;
+    }
+
+    let abs = project_root.join(&changed_norm);
+    let abs_norm = normalize_slashes(&abs.to_string_lossy());
+    node_norm == abs_norm
+}
+
+fn changed_node_ids(
+    graph: &arbor_graph::ArborGraph,
+    changed_files: &[String],
+    project_root: &Path,
+) -> Vec<arbor_graph::NodeId> {
+    graph
+        .node_indexes()
+        .filter(|idx| {
+            graph.get(*idx).is_some_and(|node| {
+                changed_files
+                    .iter()
+                    .any(|f| node_matches_changed_file(&node.file, f, project_root))
+            })
+        })
+        .collect()
+}
+
+fn compute_diff_summary(
+    graph: &arbor_graph::ArborGraph,
+    changed_files: Vec<String>,
+    changed_node_ids: Vec<arbor_graph::NodeId>,
+    max_depth: usize,
+    project_root: &Path,
+) -> DiffSummary {
+    let mut direct_callers = std::collections::HashSet::new();
+    let mut indirect_callers = std::collections::HashSet::new();
+    let mut affected_nodes = std::collections::HashSet::new();
+    let mut affected_files = std::collections::HashSet::new();
+
+    for node_id in changed_node_ids.iter().copied() {
+        let analysis = graph.analyze_impact(node_id, max_depth);
+
+        for up in &analysis.upstream {
+            affected_nodes.insert(up.node_info.id.clone());
+            affected_files.insert(up.node_info.file.clone());
+            if up.hop_distance <= 1 {
+                direct_callers.insert(up.node_info.id.clone());
+            } else {
+                indirect_callers.insert(up.node_info.id.clone());
+            }
+        }
+
+        for down in &analysis.downstream {
+            affected_nodes.insert(down.node_info.id.clone());
+            affected_files.insert(down.node_info.file.clone());
+        }
+    }
+
+    let entrypoints_affected = affected_nodes
+        .iter()
+        .filter_map(|id| graph.get_index(id))
+        .filter(|idx| graph.analyze_impact(*idx, 1).upstream.is_empty())
+        .count();
+
+    let changed_norm: Vec<String> = changed_files.iter().map(|f| normalize_slashes(f)).collect();
+    let files_likely_updates = affected_files
+        .iter()
+        .filter(|f| {
+            let f_norm = normalize_slashes(f);
+            !changed_norm.iter().any(|c| {
+                f_norm.ends_with(c)
+                    || f_norm == normalize_slashes(&project_root.join(c).to_string_lossy())
+            })
+        })
+        .count();
+
+    DiffSummary {
+        changed_files,
+        changed_symbols: changed_node_ids.len(),
+        direct_callers: direct_callers.len(),
+        indirect_callers: indirect_callers.len(),
+        entrypoints_affected,
+        files_likely_updates,
+        blast_radius_nodes: affected_nodes.len(),
+    }
+}
+
+fn print_diff_summary(summary: &DiffSummary) {
+    println!("{}", "Change Impact Preview".cyan().bold());
+    println!();
+    println!("Modified files:");
+    for f in &summary.changed_files {
+        println!("  • {}", f);
+    }
+    println!();
+    println!("Impact:");
+    println!("  • {} direct callers", summary.direct_callers);
+    println!("  • {} indirect callers", summary.indirect_callers);
+    println!(
+        "  • {} API entrypoints affected",
+        summary.entrypoints_affected
+    );
+    println!(
+        "  • {} files likely require updates",
+        summary.files_likely_updates
+    );
+    println!("  • {} impacted nodes total", summary.blast_radius_nodes);
+    println!("  • {} changed symbols resolved", summary.changed_symbols);
+}
+
+fn resolve_node_or_file_target(
+    graph: &arbor_graph::ArborGraph,
+    symbol: &str,
+    project_root: &Path,
+) -> Option<(String, u32)> {
+    let candidate_path = project_root.join(symbol);
+    if candidate_path.exists() {
+        return Some((candidate_path.to_string_lossy().to_string(), 1));
+    }
+
+    if let Some(idx) = graph.get_index(symbol) {
+        if let Some(node) = graph.get(idx) {
+            return Some((node.file.clone(), node.line_start));
+        }
+    }
+
+    graph
+        .find_by_name(symbol)
+        .first()
+        .map(|node| (node.file.clone(), node.line_start))
+}
+
+fn command_exists(cmd: &str) -> bool {
+    Command::new(cmd)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn open_in_editor(file: &str, line: u32) -> Result<()> {
+    let editor = std::env::var("ARBOR_EDITOR").ok();
+    let targets = if let Some(e) = editor {
+        vec![e]
+    } else {
+        vec![
+            "cursor".to_string(),
+            "code".to_string(),
+            "nvim".to_string(),
+            "vim".to_string(),
+        ]
+    };
+
+    for cmd in targets {
+        if !command_exists(&cmd) {
+            continue;
+        }
+
+        let status = if cmd == "cursor" || cmd == "code" {
+            Command::new(&cmd)
+                .arg("-g")
+                .arg(format!("{}:{}", file, line))
+                .status()?
+        } else {
+            Command::new(&cmd)
+                .arg(format!("+{}", line))
+                .arg(file)
+                .status()?
+        };
+
+        if status.success() {
+            return Ok(());
+        }
+    }
+
+    Err("No supported editor found (cursor/code/nvim/vim). Set ARBOR_EDITOR to override.".into())
 }
 
 /// Initialize Arbor in a directory.
@@ -196,6 +458,7 @@ pub fn index(
     output: Option<&Path>,
     follow_symlinks: bool,
     no_cache: bool,
+    changed_only: bool,
 ) -> Result<()> {
     let resolved_path = resolve_project_path(path)?;
     let was_initialized = ensure_arbor_initialized(&resolved_path)?;
@@ -205,6 +468,10 @@ pub fn index(
             "✓".green(),
             resolved_path.join(".arbor").display()
         );
+    }
+
+    if changed_only {
+        return index_changed_only(&resolved_path, output, follow_symlinks);
     }
 
     println!("{}", "Indexing codebase...".cyan());
@@ -269,10 +536,98 @@ pub fn index(
     }
 
     save_graph_snapshot(&resolved_path, &result.graph)?;
+    save_graph_binary(&resolved_path, &result.graph)?;
     println!(
         "{} Saved graph snapshot to {}",
         "✓".green(),
         graph_snapshot_path(&resolved_path).display()
+    );
+
+    Ok(())
+}
+
+fn index_changed_only(path: &Path, output: Option<&Path>, follow_symlinks: bool) -> Result<()> {
+    let changed_files = git_changed_files(path)?;
+    if changed_files.is_empty() {
+        println!(
+            "{} No git changes detected. Nothing to re-index.",
+            "✓".green()
+        );
+        return Ok(());
+    }
+
+    println!(
+        "{} Incremental indexing (changed files only)...",
+        "⚡".cyan()
+    );
+    let base_graph = load_or_index_graph(path)?;
+
+    let mut retained_nodes = Vec::new();
+    for node in base_graph.nodes() {
+        let changed = changed_files
+            .iter()
+            .any(|f| node_matches_changed_file(&node.file, f, path));
+        if !changed {
+            retained_nodes.push(node.clone());
+        }
+    }
+
+    let mut parsed_nodes = Vec::new();
+    let mut parsed_files = 0usize;
+    let mut parse_errors = 0usize;
+
+    for rel in &changed_files {
+        let abs = path.join(rel);
+        if !abs.exists() {
+            continue; // deleted file, already removed by retained_nodes filter
+        }
+        if abs.is_dir() {
+            continue;
+        }
+
+        let extension = match abs.extension().and_then(|e| e.to_str()) {
+            Some(ext) => ext,
+            None => continue,
+        };
+
+        if !arbor_core::languages::is_supported(extension) {
+            continue;
+        }
+
+        match parse_file(&abs) {
+            Ok(nodes) => {
+                parsed_files += 1;
+                parsed_nodes.extend(nodes);
+            }
+            Err(_) => {
+                parse_errors += 1;
+            }
+        }
+    }
+
+    let mut builder = arbor_graph::GraphBuilder::new();
+    builder.add_nodes(retained_nodes);
+    builder.add_nodes(parsed_nodes);
+    let graph = builder.build();
+
+    save_graph_snapshot(path, &graph)?;
+    save_graph_binary(path, &graph)?;
+
+    if let Some(out_path) = output {
+        export_graph(&graph, out_path)?;
+    }
+
+    println!(
+        "{} Incremental index done: {} changed files parsed, {} parse errors, {} total nodes",
+        "✓".green(),
+        parsed_files,
+        parse_errors,
+        graph.node_count()
+    );
+    println!(
+        "{} Follow symlinks mode: {}",
+        "ℹ".blue(),
+        if follow_symlinks { "on" } else { "off" }
     );
 
     Ok(())
@@ -320,6 +675,102 @@ pub fn query(query: &str, limit: usize, path: &Path) -> Result<()> {
         if let Some(ref sig) = node.signature {
             println!("    {}", sig.dimmed());
         }
+    }
+
+    Ok(())
+}
+
+pub fn diff(path: &Path, depth: usize, json_output: bool) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+
+    if !is_git_repo(&resolved_path) {
+        return Err("arbor diff requires a git repository".into());
+    }
+
+    let changed_files = git_changed_files(&resolved_path)?;
+    if changed_files.is_empty() {
+        println!("{} No modified files detected against HEAD.", "✓".green());
+        return Ok(());
+    }
+
+    let graph = load_or_index_graph(&resolved_path)?;
+    let changed_nodes = changed_node_ids(&graph, &changed_files, &resolved_path);
+    let summary = compute_diff_summary(&graph, changed_files, changed_nodes, depth, &resolved_path);
+
+    if json_output {
+        let output = serde_json::json!({
+            "changed_files": summary.changed_files,
+            "changed_symbols": summary.changed_symbols,
+            "impact": {
+                "direct_callers": summary.direct_callers,
+                "indirect_callers": summary.indirect_callers,
+                "api_entrypoints_affected": summary.entrypoints_affected,
+                "files_likely_require_updates": summary.files_likely_updates,
+                "blast_radius_nodes": summary.blast_radius_nodes
+            }
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    print_diff_summary(&summary);
+    Ok(())
+}
+
+pub fn check(
+    path: &Path,
+    depth: usize,
+    max_blast_radius: usize,
+    no_fail: bool,
+    json_output: bool,
+) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+
+    if !is_git_repo(&resolved_path) {
+        return Err("arbor check requires a git repository".into());
+    }
+
+    let changed_files = git_changed_files(&resolved_path)?;
+    let graph = load_or_index_graph(&resolved_path)?;
+    let changed_nodes = changed_node_ids(&graph, &changed_files, &resolved_path);
+    let summary = compute_diff_summary(&graph, changed_files, changed_nodes, depth, &resolved_path);
+
+    let risky = summary.blast_radius_nodes > max_blast_radius
+        || summary.entrypoints_affected > 0
+        || summary.indirect_callers > max_blast_radius / 2;
+
+    if json_output {
+        let output = serde_json::json!({
+            "risky": risky,
+            "thresholds": {
+                "max_blast_radius": max_blast_radius
+            },
+            "summary": {
+                "changed_files": summary.changed_files,
+                "changed_symbols": summary.changed_symbols,
+                "direct_callers": summary.direct_callers,
+                "indirect_callers": summary.indirect_callers,
+                "api_entrypoints_affected": summary.entrypoints_affected,
+                "files_likely_require_updates": summary.files_likely_updates,
+                "blast_radius_nodes": summary.blast_radius_nodes
+            }
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if risky {
+        println!("{}", "High risk refactor detected.".red().bold());
+        println!();
+        print_diff_summary(&summary);
+        println!();
+        println!("Recommendation: run integration tests.");
+    } else {
+        println!("{}", "Safe change window detected.".green().bold());
+        print_diff_summary(&summary);
+    }
+
+    if risky && !no_fail {
+        return Err("risky change set detected".into());
     }
 
     Ok(())
@@ -780,7 +1231,7 @@ pub async fn bridge(path: &Path, launch_viz: bool, follow_symlinks: bool) -> Res
 
 /// Check system health and environment.
 pub async fn check_health(path: Option<&Path>) -> Result<()> {
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
 
     println!("{}", "🔍 Arbor Health Check".cyan().bold());
     println!("{}", "═".repeat(50));
@@ -793,6 +1244,20 @@ pub async fn check_health(path: Option<&Path>) -> Result<()> {
     } else {
         resolve_project_path(Path::new("."))?
     };
+
+    println!(
+        "{} Arbor version {}",
+        "✓".green(),
+        env!("CARGO_PKG_VERSION")
+    );
+
+    // 0. Check git repo
+    if is_git_repo(&workspace_root) {
+        println!("{} Git repository detected", "✓".green());
+    } else {
+        println!("{} Git repository not detected", "⚠".yellow());
+        all_ok = false;
+    }
 
     // 1. Check Cargo.toml presence (Rust workspace)
     let cargo_exists =
@@ -839,12 +1304,72 @@ pub async fn check_health(path: Option<&Path>) -> Result<()> {
     let arbor_path = workspace_root.join(".arbor");
     if arbor_path.exists() {
         println!("{} Arbor initialized (.arbor/ exists)", "✓".green());
+
+        // 6. Snapshot presence and size
+        let snapshot = graph_snapshot_path(&workspace_root);
+        if snapshot.exists() {
+            let size = fs::metadata(&snapshot).map(|m| m.len()).unwrap_or(0);
+            let size_mb = size as f64 / (1024.0 * 1024.0);
+            if size_mb > 120.0 {
+                println!(
+                    "{} Graph snapshot is large ({:.1}MB) — consider prune/re-index",
+                    "⚠".yellow(),
+                    size_mb
+                );
+            } else {
+                println!("{} Graph snapshot present ({:.1}MB)", "✓".green(), size_mb);
+            }
+        } else {
+            println!("{} Graph snapshot not found", "⚠".yellow());
+        }
+
+        // 7. Cache/snapshot integrity
+        match load_graph_binary(&workspace_root)
+            .or_else(|_| load_graph_snapshot(&workspace_root))
+            .or_else(|_| load_graph_from_store(&workspace_root))
+        {
+            Ok(_) => println!("{} Cache and snapshot readable", "✓".green()),
+            Err(e) => {
+                println!("{} Cache may be corrupted: {}", "⚠".yellow(), e);
+                all_ok = false;
+            }
+        }
+
+        // 8. Index freshness (git changes vs HEAD)
+        match git_changed_files(&workspace_root) {
+            Ok(changed) if changed.is_empty() => {
+                println!(
+                    "{} Index appears up to date (no pending git diffs)",
+                    "✓".green()
+                )
+            }
+            Ok(changed) => println!(
+                "{} Index may be stale ({} changed files). Run 'arbor index --changed-only'",
+                "⚠".yellow(),
+                changed.len()
+            ),
+            Err(_) => println!("{} Could not determine index freshness", "⚠".yellow()),
+        }
     } else {
         println!(
             "{} Arbor not initialized (run 'arbor setup' in workspace root)",
             "⚠".yellow()
         );
         all_ok = false;
+    }
+
+    // 9. MCP bridge health (best-effort)
+    let mcp_healthy = TcpStream::connect("127.0.0.1:7433").is_ok();
+    if mcp_healthy {
+        println!(
+            "{} MCP bridge appears healthy (port 7433 open)",
+            "✓".green()
+        );
+    } else {
+        println!(
+            "{} MCP bridge not reachable on 7433 (start with 'arbor bridge')",
+            "⚠".yellow()
+        );
     }
 
     println!("{}", "═".repeat(50));
@@ -1423,6 +1948,19 @@ pub fn explain(
         );
     }
 
+    Ok(())
+}
+
+pub fn open(symbol: &str, path: &Path) -> Result<()> {
+    let resolved_path = resolve_project_path(path)?;
+    let _ = ensure_arbor_initialized(&resolved_path)?;
+    let graph = load_or_index_graph(&resolved_path)?;
+
+    let (file, line) = resolve_node_or_file_target(&graph, symbol, &resolved_path)
+        .ok_or_else(|| format!("Could not resolve symbol or file '{}'.", symbol))?;
+
+    open_in_editor(&file, line)?;
+    println!("{} Opened {}:{}", "✓".green(), file, line);
     Ok(())
 }
 
