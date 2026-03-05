@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - 2026-03-04
+## [Unreleased]
 
 ### Added
 
@@ -19,6 +19,10 @@
 
 - **Branching guidance** documented for `main`, `release/v1.5`, and `release/v1.6`
 - **Documentation refresh** across README, Quickstart, Install, Architecture, and MCP integration guides
+
+### Documentation
+
+- Added formal release notes for v1.6.0 in `docs/RELEASE_NOTES_v1.6.0.md`
 
 ## [1.1.0] - 2026-01-08 "The Sentinel Update"
 
