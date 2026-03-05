@@ -23,6 +23,8 @@ Arbor is the **graph-native intelligence layer for code**. It parses your codeba
 
 This CLI is the primary interface for indexing, querying, and connecting your code to AI via the Model Context Protocol (MCP).
 
+> Release status (March 2026): stable maintenance on `release/v1.5`, feature delivery on `release/v1.6`.
+
 ## Installation
 
 ```bash
@@ -79,6 +81,13 @@ arbor index --changed-only
 arbor diff
 arbor check --json --max-blast-radius 30
 ```
+
+## Release Docs
+
+- [Quickstart](../../docs/QUICKSTART.md)
+- [Installation](../../docs/INSTALL.md)
+- [MCP Integration](../../docs/MCP_INTEGRATION.md)
+- [v1.6 Release Notes](../../docs/RELEASE_NOTES_v1.6.0.md)
 
 ## Supported Languages
 

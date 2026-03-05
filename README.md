@@ -21,6 +21,8 @@
 - **Current feature line:** `release/v1.6`
 - **Main development trunk:** `main`
 
+Arbor is currently in final polish for the v1.6 release line.
+
 ## Highlights
 
 - **Accurate Token Counting** — tiktoken (cl100k_base) replaces heuristic estimates for precise LLM context budgets
@@ -161,6 +163,18 @@ This avoids shipping new features into older maintenance branches and keeps back
 Arbor is listed on Glama MCP Directory:
 
 - **Glama:** https://glama.ai/mcp/servers/@Anandb71/arbor
+
+---
+
+## Documentation Hub
+
+- **Quickstart:** [docs/QUICKSTART.md](docs/QUICKSTART.md)
+- **Installation:** [docs/INSTALL.md](docs/INSTALL.md)
+- **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **MCP Integration:** [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md)
+- **Protocol Specification:** [docs/PROTOCOL.md](docs/PROTOCOL.md)
+- **Roadmap:** [docs/ROADMAP.md](docs/ROADMAP.md)
+- **Release Notes (v1.6):** [docs/RELEASE_NOTES_v1.6.0.md](docs/RELEASE_NOTES_v1.6.0.md)
 
 ---
 
