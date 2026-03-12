@@ -36,9 +36,6 @@ Arbor is currently in final polish for the v1.6 release line.
   <img src="docs/assets/arbor-demo.gif" alt="Arbor refactor demo" width="700" />
 </p>
 
-## Overview
----
-
 ## What is Arbor?
 
 Arbor is a **local‑first impact analysis engine** for large codebases. Instead of treating code as text, Arbor parses your project into a **semantic dependency graph**. This lets you trace *real execution paths*—callers, callees, imports, inheritance, and cross‑file relationships—so you can confidently understand the consequences of change.
@@ -209,34 +206,6 @@ The result: **deterministic, explainable answers**.
 
 ### Native GUI
 
-A lightweight, high‑performance interface bundled directly with Arbor—no browser, no server.
-
-### Confidence Scoring
-
-Each result includes an **explainable confidence level**:
-
-* **High** – Fully resolved, statically verifiable paths
-* **Medium** – Partial uncertainty (e.g., polymorphism)
-* **Low** – Heuristic or dynamic resolution
-
-### Node Classification
-
-Arbor infers architectural roles automatically:
-
-* **Entry Point** – APIs, CLIs, main functions
-* **Core Logic** – Domain and business rules
-* **Utility** – Widely reused helpers
-* **Adapter** – Interfaces, boundaries, and bridges
-
-### AI Bridge (MCP)
-
-Arbor implements the **Model Context Protocol (MCP)**, enabling LLMs (e.g., Claude) to query the graph directly:
-
-* `find_path(start, end)` – Trace logic flow
-* `analyze_impact(node)` – Compute blast radius
-* `get_logic_path(node)` – Generate graph-backed architectural brief
-
-### Cross‑File Resolution
 
 A global symbol table resolves:
 
@@ -332,11 +301,35 @@ Your code never leaves your machine.
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+=======
+## Contributors
+>>>>>>> origin/main
 
 <p align="center">
-  <a href="https://github.com/Anandb71/arbor">⭐ Star Arbor on GitHub</a>
+  <a href="https://github.com/Anandb71" title="Anandb71">
+    <img src="https://avatars.githubusercontent.com/u/169837340?v=4" width="64" height="64" alt="Anandb71" />
+  </a>
+  <a href="https://github.com/holg" title="holg">
+    <img src="https://avatars.githubusercontent.com/u/1383439?v=4" width="64" height="64" alt="holg" />
+  </a>
+  <a href="https://github.com/apps/copilot-swe-agent" title="Copilot">
+    <img src="https://avatars.githubusercontent.com/in/1143301?v=4" width="64" height="64" alt="Copilot" />
+  </a>
+  <a href="https://github.com/cabinlab" title="cabinlab">
+    <img src="https://avatars.githubusercontent.com/u/66889299?v=4" width="64" height="64" alt="cabinlab" />
+  </a>
+  <a href="https://github.com/Karthiksenthilkumar1" title="Karthiksenthilkumar1">
+    <img src="https://avatars.githubusercontent.com/u/182195883?v=4" width="64" height="64" alt="Karthiksenthilkumar1" />
+  </a>
+  <a href="https://github.com/sanjayy-j" title="sanjayy-j">
+    <img src="https://avatars.githubusercontent.com/u/178475117?v=4" width="64" height="64" alt="sanjayy-j" />
+  </a>
+  <a href="https://github.com/sathguru07" title="sathguru07">
+    <img src="https://avatars.githubusercontent.com/u/182798669?v=4" width="64" height="64" alt="sathguru07" />
+  </a>
 </p>
 
+<<<<<<< HEAD
 ---
 
 ## Contributors
