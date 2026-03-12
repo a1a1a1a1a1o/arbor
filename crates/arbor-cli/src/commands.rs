@@ -282,12 +282,22 @@ fn git_changed_files(path: &Path) -> Result<Vec<String>> {
 
     let mut files = Vec::new();
 
-    let unstaged = run_git(path, &["diff", "-w", "--name-status", "--find-renames", "HEAD"])?;
+    let unstaged = run_git(
+        path,
+        &["diff", "-w", "--name-status", "--find-renames", "HEAD"],
+    )?;
     files.extend(parse_git_name_status_output(&unstaged));
 
     let staged = run_git(
         path,
-        &["diff", "--cached", "-w", "--name-status", "--find-renames", "HEAD"],
+        &[
+            "diff",
+            "--cached",
+            "-w",
+            "--name-status",
+            "--find-renames",
+            "HEAD",
+        ],
     )?;
     files.extend(parse_git_name_status_output(&staged));
 
@@ -2170,6 +2180,7 @@ pub async fn watch(path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{is_generated_or_internal_path, parse_git_name_status_output};
     use std::path::PathBuf;

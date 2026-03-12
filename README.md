@@ -302,6 +302,18 @@ Run `arbor status` to verify file detection and parser health.
 
 Run `arbor doctor` (or `arbor check-health`) to verify ports, project structure, and integration readiness.
 
+### Repo suddenly huge (multi-GB)?
+
+Rust and Flutter build artifacts can grow quickly during iterative testing.
+
+- Windows PowerShell: `./scripts/clean.ps1`
+- macOS/Linux: `./scripts/clean.sh`
+- Deeper cleanup (also removes local Arbor/Flutter cache artifacts):
+  - PowerShell: `./scripts/clean.ps1 -Deep`
+  - Bash: `./scripts/clean.sh --deep`
+
+This is safe for source code; it only removes generated artifacts that can be rebuilt.
+
 ---
 
 ## Security Model

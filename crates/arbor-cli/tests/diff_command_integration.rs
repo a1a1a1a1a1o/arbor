@@ -69,7 +69,9 @@ fn diff_reports_renamed_path_not_old_path() {
     );
 
     let json: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
-    let changed_files = json["changed_files"].as_array().expect("changed_files array");
+    let changed_files = json["changed_files"]
+        .as_array()
+        .expect("changed_files array");
     let changed_values: Vec<String> = changed_files
         .iter()
         .filter_map(|v| v.as_str().map(ToOwned::to_owned))
