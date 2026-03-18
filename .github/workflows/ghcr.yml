@@ -27,10 +27,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve checkout ref safely
+        id: ref
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            raw_ref='${{ github.event.release.tag_name }}'
+          elif [[ -n "${{ github.event.inputs.git_ref }}" ]]; then
+            raw_ref='${{ github.event.inputs.git_ref }}'
+          else
+            raw_ref='${{ github.ref_name }}'
+          fi
+
+          # Guard against accidental glob/wildcard input (e.g. v1.6.1*)
+          safe_ref="${raw_ref//\*/}"
+          # Trim spaces
+          safe_ref="$(echo -n "$safe_ref" | xargs)"
+
+          if [[ -z "$safe_ref" ]]; then
+            echo "Resolved ref is empty after sanitization" >&2
+            exit 1
+          fi
+
+          echo "ref=$safe_ref" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.git_ref || github.ref }}
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
