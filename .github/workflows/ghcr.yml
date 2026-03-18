@@ -39,13 +39,17 @@ jobs:
             raw_ref='${{ github.ref }}'
           fi
 
-          # Guard against accidental glob/wildcard input (e.g. v1.6.1*)
-          safe_ref="${raw_ref//\*/}"
-          # Trim spaces
-          safe_ref="$(echo -n "$safe_ref" | xargs)"
+          # Trim spaces from the raw ref
+          safe_ref="$(echo -n "$raw_ref" | xargs)"
+
+          # Fail fast if wildcard characters are present (e.g. v1.6.1*)
+          if [[ "$safe_ref" == *"*"* ]]; then
+            echo "Error: wildcard characters are not allowed in git_ref: '$safe_ref'" >&2
+            exit 1
+          fi
 
           if [[ -z "$safe_ref" ]]; then
-            echo "Resolved ref is empty after sanitization" >&2
+            echo "Resolved ref is empty after validation" >&2
             exit 1
           fi
 
