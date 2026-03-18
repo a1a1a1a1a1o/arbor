@@ -9,9 +9,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY Cargo.toml ./
+COPY Cargo.lock ./
 COPY crates/ ./crates/
 
-RUN cargo build --release -p arbor-graph-cli --bin arbor
+RUN cargo build --release --manifest-path crates/arbor-cli/Cargo.toml --bin arbor
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
