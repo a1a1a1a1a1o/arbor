@@ -45,6 +45,8 @@ Then in Cursor:
 
 VS Code now supports MCP server definitions via workspace config.
 
+> Note: VS Code’s MCP config uses a top-level `"servers"` key, whereas Cursor’s `.cursor/mcp.json` uses `"mcpServers"`. Make sure to use the schema appropriate for each client.
+
 Create `.vscode/mcp.json`:
 
 ```json
