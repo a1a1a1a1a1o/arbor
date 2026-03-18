@@ -1,0 +1,88 @@
+name: Publish VS Code Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version bump (patch | minor | major | x.y.z). Leave empty to publish current package.json version."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish extension registries
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: extensions/arbor-vscode
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extensions/arbor-vscode/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Compile extension
+        run: npm run compile
+
+      - name: Install publish CLIs
+        run: npm install -g @vscode/vsce ovsx
+
+      - name: Validate publishing token presence
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ] && [ -z "$OVSX_PAT" ]; then
+            echo "No publish token found. Add VSCE_PAT and/or OVSX_PAT in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT not set; skipping VS Code Marketplace publish."
+            exit 0
+          fi
+
+          if [ -n "$INPUT_VERSION" ]; then
+            vsce publish "$INPUT_VERSION" --pat "$VSCE_PAT"
+          else
+            vsce publish --pat "$VSCE_PAT"
+          fi
+
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT not set; skipping Open VSX publish."
+            exit 0
+          fi
+
+          PUBLISHER="$(node -p "require('./package.json').publisher")"
+          echo "Ensuring Open VSX namespace '$PUBLISHER' exists..."
+          ovsx create-namespace "$PUBLISHER" --pat "$OVSX_PAT" || true
+
+          # Publish the same current package version to Open VSX.
+          ovsx publish --pat "$OVSX_PAT"
