@@ -36,7 +36,7 @@ jobs:
           elif [[ -n "${{ github.event.inputs.git_ref }}" ]]; then
             raw_ref='${{ github.event.inputs.git_ref }}'
           else
-            raw_ref='${{ github.ref_name }}'
+            raw_ref='${{ github.ref }}'
           fi
 
           # Guard against accidental glob/wildcard input (e.g. v1.6.1*)
