@@ -182,4 +182,4 @@ Use `arbor query <name>` to verify the symbol is indexed.
 
 ## Version
 
-This guide is for Arbor releases with MCP capabilities (v1.6+). For branch/release channel policy, see [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+This guide is for Arbor releases with MCP capabilities (v1.6+). For branch/release channel policy, see [`CONTRIBUTING.md`](../.github/CONTRIBUTING.md).
