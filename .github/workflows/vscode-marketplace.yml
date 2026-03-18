@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish to VS Code Marketplace + Open VSX
+    name: Publish extension registries
     runs-on: ubuntu-latest
 
     defaults:
@@ -45,16 +45,22 @@ jobs:
       - name: Install publish CLIs
         run: npm install -g @vscode/vsce ovsx
 
+      - name: Validate publishing token presence
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ] && [ -z "$OVSX_PAT" ]; then
+            echo "No publish token found. Add VSCE_PAT and/or OVSX_PAT in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
       - name: Publish to VS Code Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ -z "$VSCE_PAT" ]; then
-            echo "Missing VSCE_PAT secret. Add it in repository Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-
           if [ -n "$INPUT_VERSION" ]; then
             vsce publish "$INPUT_VERSION" --pat "$VSCE_PAT"
           else
@@ -62,13 +68,9 @@ jobs:
           fi
 
       - name: Publish to Open VSX
+        if: ${{ secrets.OVSX_PAT != '' }}
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |
-          if [ -z "$OVSX_PAT" ]; then
-            echo "Missing OVSX_PAT secret. Add it in repository Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-
           # Publish the same current package version to Open VSX.
           ovsx publish --pat "$OVSX_PAT"
