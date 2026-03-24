@@ -20,7 +20,7 @@
     "refactor",
     "analysis"
   ],
-    "icon": "arbor-logo.png"
+    "icon": "arbor-logo.png",
     "engines": {
       "vscode": "^1.85.0"
     },
