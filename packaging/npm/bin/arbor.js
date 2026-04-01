@@ -13,7 +13,7 @@ const target = process.platform === "win32" ? winBin : unixBin;
 
 if (!fs.existsSync(target)) {
   console.error("Arbor binary is not installed yet.");
-  console.error("Run: npm rebuild @arbor-graph/cli or reinstall the package.");
+  console.error("Run: npm rebuild @anandb71/arbor-cli or reinstall the package.");
   process.exit(1);
 }
 
