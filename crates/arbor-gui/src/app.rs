@@ -396,7 +396,11 @@ impl eframe::App for ArborApp {
             // Version watermark (bottom right)
             ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Arbor v1.5").small().weak());
+                ui.label(
+                    egui::RichText::new(format!("Arbor v{}", env!("CARGO_PKG_VERSION")))
+                        .small()
+                        .weak(),
+                );
             });
         });
     }

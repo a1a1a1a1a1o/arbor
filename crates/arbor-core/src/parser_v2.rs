@@ -112,7 +112,6 @@ impl ArborParser {
         let py_queries = Self::compile_python_queries()?;
         queries.insert("py".to_string(), py_queries);
 
-        // TEMPORARILY DISABLED FOR DEBUGGING
         // Compile Go queries
         let go_queries = Self::compile_go_queries()?;
         queries.insert("go".to_string(), go_queries);
@@ -127,7 +126,7 @@ impl ArborParser {
         }
 
         // Compile C++ queries
-        for ext in &["cpp", "hpp", "cc", "hh", "cxx"] {
+        for ext in &["cpp", "hpp", "cc", "hh", "cxx", "hxx"] {
             queries.insert(ext.to_string(), Self::compile_cpp_queries()?);
         }
 

@@ -51,6 +51,18 @@ impl Default for SyncServerConfig {
                 "jsx".into(),
                 "rs".into(),
                 "py".into(),
+                "go".into(),
+                "java".into(),
+                "c".into(),
+                "h".into(),
+                "cpp".into(),
+                "hpp".into(),
+                "cc".into(),
+                "hh".into(),
+                "cxx".into(),
+                "hxx".into(),
+                "cs".into(),
+                "dart".into(),
                 "kt".into(),
                 "kts".into(),
                 "swift".into(),
@@ -382,7 +394,7 @@ async fn handle_client(
     };
 
     let hello = BroadcastMessage::Hello(HelloPayload {
-        version: "1.1.1".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         node_count,
         edge_count,
     });
