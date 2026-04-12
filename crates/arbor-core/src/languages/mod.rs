@@ -94,6 +94,27 @@ pub fn supported_extensions() -> &'static [&'static str] {
     ]
 }
 
+/// Lists all supported language families (for API metadata).
+pub fn supported_language_names() -> &'static [&'static str] {
+    &[
+        "typescript",
+        "javascript",
+        "rust",
+        "python",
+        "go",
+        "java",
+        "c",
+        "cpp",
+        "csharp",
+        "dart",
+        "kotlin",
+        "swift",
+        "ruby",
+        "php",
+        "shell",
+    ]
+}
+
 /// Checks if a file extension is supported.
 pub fn is_supported(extension: &str) -> bool {
     get_parser(extension).is_some() || is_fallback_supported_extension(extension)

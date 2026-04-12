@@ -26,7 +26,7 @@ pub async fn handle_info(graph: SharedGraph, id: Option<Value>) -> Response {
         node_count: usize,
         #[serde(rename = "edgeCount")]
         edge_count: usize,
-        languages: Vec<&'static str>,
+        languages: Vec<String>,
         version: &'static str,
     }
 
@@ -35,7 +35,10 @@ pub async fn handle_info(graph: SharedGraph, id: Option<Value>) -> Response {
         InfoResult {
             node_count: g.node_count(),
             edge_count: g.edge_count(),
-            languages: vec!["typescript", "rust", "python"],
+            languages: arbor_core::languages::supported_language_names()
+                .iter()
+                .map(|lang| (*lang).to_string())
+                .collect(),
             version: env!("CARGO_PKG_VERSION"),
         },
     )
