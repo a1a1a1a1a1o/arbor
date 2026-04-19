@@ -21,6 +21,7 @@ Know what breaks *before* you break it.
 
 ## Table of Contents
 
+- [The Arbor Philosophy](#the-arbor-philosophy)
 - [Why Arbor](#why-arbor)
 - [What you get](#what-you-get)
 - [Visual tour](#visual-tour)
@@ -35,6 +36,18 @@ Know what breaks *before* you break it.
 - [Contributors](#contributors)
 - [Security](#security)
 - [License](#license)
+
+---
+
+## The Arbor Philosophy
+
+Arbor is rooted in three unwavering principles, listed in strict order of priority. Every architectural decision is measured against this hierarchy:
+
+1. **Consumer First**: Tooling must be beautiful, intuitive, and instantly useful out of the box. The developer experience triumphs over all other metrics.
+2. **Accessibility Second**: Deep AI intelligence and graph analysis should never be gatekept. Our tooling is built to work seamlessly across language ecosystems and run deterministically on any machine.
+3. **Affordability Next**: We ruthlessly optimize for minimal computational overhead. From edge laptops to giant monoliths, graph exploration should have zero-friction adoption.
+
+For comprehensive details on our approach, read our [PHILOSOPHY.md](PHILOSOPHY.md).
 
 ---
 
@@ -54,11 +67,11 @@ You get deterministic, explainable impact analysis instead of approximate keywor
 
 ## What you get
 
-- **Blast radius analysis** with confidence levels and role classification
-- **Graph-backed symbol resolution** across files and language boundaries
-- **CLI + GUI + MCP bridge** sharing the same analysis engine
-- **Incremental indexing** for fast inner-loop development
-- **Git-aware checks** for pull-request risk gates
+- **Blast radius analysis**: See exactly which files and modules will be affected by a change (complete with depth confidence levels) before you ever press save.
+- **Graph-backed symbol resolution**: Accurately tracks dependencies across files and entire language boundaries automatically.
+- **Unified Tooling (CLI + GUI + MCP)**: Native desktop GUI, a blazing fast CLI, and Claude/AI Model Context Protocol integration all utilizing the exact same core analytical reasoning engine.
+- **Git-aware risk gating**: Block pull-requests automatically in your CI/CD if a PR introduces a dangerously high architectural blast radius.
+- **Lightning fast incremental indexing**: Sub-second background cache updates instantly tracking your code edits in real-time.
 
 ---
 
@@ -79,21 +92,21 @@ For a full-screen recording of the workflow, see [media/recording-2026-01-13.mp4
 ## Quickstart
 
 ```bash
-# 1) Install Arbor CLI
+# 1) Install the Arbor CLI globally via Cargo
 cargo install arbor-graph-cli
 
-# 2) Initialize in your repository
+# 2) Initialize Arbor and build the dependency graph for your codebase
 cd your-project
 arbor setup
 
-# 3) Explore impact before refactor
+# 3) See EVERYTHING a function touches before you break it
 arbor refactor <symbol-name>
 
-# 4) Optional: run git-aware checks
-arbor diff
-arbor check --max-blast-radius 30
+# 4) Run safety checks (Great for CI/CD or before committing)
+arbor diff  # See what your uncommitted git changes impact
+arbor check --max-blast-radius 30  # Fail the checks if your changes break more than 30 nodes
 
-# 5) Launch GUI
+# 5) Launch the visual interface to intuitively explore your code's architecture
 arbor gui
 ```
 
@@ -169,7 +182,7 @@ Arbor supports production parsing and graph analysis across major ecosystems:
 - Go
 - Java
 - C / C++
-- C#
+- C# (Native Tree-sitter)
 - Dart
 - Kotlin (fallback parser)
 - Swift (fallback parser)
