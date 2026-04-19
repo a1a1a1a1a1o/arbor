@@ -770,16 +770,18 @@ mod tests {
         let config = SyncServerConfig::default();
         let exts = &config.extensions;
 
-        // Verify all primary extensions from arbor_core::languages are present
-        let required = vec![
-            "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "rs", "py", "pyi", "go", "java",
-            "c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "cs", "dart", "kt", "kts", "swift",
-            "rb", "php", "phtml", "sh", "bash", "zsh",
-        ];
+        // Verify all supported extensions from arbor_core::languages are present.
+        let required: std::collections::HashSet<String> =
+            arbor_core::languages::supported_extensions()
+                .iter()
+                .map(|ext| ext.to_string())
+                .collect();
+
+        let actual: std::collections::HashSet<String> = exts.iter().cloned().collect();
 
         for ext in &required {
             assert!(
-                exts.contains(&ext.to_string()),
+                actual.contains(ext),
                 "SyncServerConfig is missing extension: {}",
                 ext
             );

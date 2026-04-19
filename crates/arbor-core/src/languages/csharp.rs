@@ -357,7 +357,8 @@ fn get_text(node: &Node, source: &str) -> String {
     source[node.byte_range()].to_string()
 }
 
-/// Detects visibility from C# modifiers.
+/// Detects visibility from C# modifiers. If none is explicitly stated,
+/// it infers the default visibility based on the context (parent node).
 fn detect_visibility(node: &Node, source: &str) -> Visibility {
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
@@ -373,6 +374,22 @@ fn detect_visibility(node: &Node, source: &str) -> Visibility {
             }
         }
     }
+
+    // Determine default visibility based on C# rules for the parent container
+    let mut parent = node.parent();
+    while let Some(p) = parent {
+        match p.kind() {
+            "interface_declaration" => return Visibility::Public,
+            "class_declaration" | "struct_declaration" => return Visibility::Private,
+            "namespace_declaration" | "file_scoped_namespace_declaration" | "compilation_unit" => {
+                return Visibility::Internal
+            }
+            _ => {
+                parent = p.parent();
+            }
+        }
+    }
+
     Visibility::Private
 }
 
