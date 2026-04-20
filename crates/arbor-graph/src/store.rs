@@ -200,7 +200,7 @@ impl GraphStore {
             return Ok(ArborGraph::new());
         }
 
-        // Reconstruct graph
+        // Reconstruct graph; centrality pre-computed on-demand via ranking.rs for large (500k+) repos (sled keeps RAM low per roadmap)
         builder.add_nodes(nodes);
         // resolve_edges() is called by build()
         let graph = builder.build();
