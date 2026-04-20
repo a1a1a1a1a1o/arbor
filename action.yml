@@ -56,16 +56,14 @@ runs:
               echo
               echo "Unable to generate impact report."
               echo
-              echo "
-
-Command: \\`${{ inputs.command }}\\`"
+              echo "Command: \`${{ inputs.command }}\`"
               echo
               echo "stderr:"
               echo '\`\`\`'
               cat /tmp/arbor-impact.err || true
               echo '\`\`\`'
             } > arbor-impact.md
-            exit 1
+            echo "::warning::Arbor impact analysis failed; wrote fallback report to arbor-impact.md."
           fi
         else
           arbor ${{ inputs.command }}

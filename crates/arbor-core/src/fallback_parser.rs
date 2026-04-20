@@ -39,7 +39,9 @@ pub fn parse_fallback_source(source: &str, file_path: &str, ext: &str) -> Vec<Co
             _ => None,
         };
 
-        if trimmed.is_empty() || (trimmed.starts_with('#') || trimmed.starts_with("//")) && candidate.is_none() {
+        if trimmed.is_empty()
+            || (trimmed.starts_with('#') || trimmed.starts_with("//")) && candidate.is_none()
+        {
             continue;
         }
 
@@ -177,7 +179,12 @@ fn parse_markdown_line(line: &str) -> Option<(String, NodeKind)> {
     }
     // Support ## Heading with ID or other variants
     if trimmed.starts_with("#") && trimmed.contains(' ') {
-        let name = trimmed.split_whitespace().nth(1).unwrap_or(trimmed).trim_start_matches('#').trim();
+        let name = trimmed
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or(trimmed)
+            .trim_start_matches('#')
+            .trim();
         if !name.is_empty() {
             return Some((name.to_string(), NodeKind::Section));
         }

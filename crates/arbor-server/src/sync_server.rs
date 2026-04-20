@@ -650,8 +650,7 @@ async fn run_background_indexer(
                         Err(error) => {
                             warn!(
                                 "Skipping '{}' due to parser init failure: {}",
-                                file_name,
-                                error
+                                file_name, error
                             );
                             None
                         }

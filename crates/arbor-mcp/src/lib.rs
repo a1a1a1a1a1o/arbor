@@ -288,10 +288,23 @@ impl McpServer {
                                     "high" => "**HIGH**",
                                     _ => "Medium",
                                 };
-                                let bold = if matches!(confidence.level, arbor_graph::ConfidenceLevel::High) { "**" } else { "" };
+                                let bold = if matches!(
+                                    confidence.level,
+                                    arbor_graph::ConfidenceLevel::High
+                                ) {
+                                    "**"
+                                } else {
+                                    ""
+                                };
                                 table.push_str(&format!(
                                     "| {} | {} | {} | {}{:?}{} | {} |\n",
-                                    u.node_info.file, u.node_info.name, risk, bold, confidence.level, bold, u.entry_edge
+                                    u.node_info.file,
+                                    u.node_info.name,
+                                    risk,
+                                    bold,
+                                    confidence.level,
+                                    bold,
+                                    u.entry_edge
                                 ));
                             }
                             table.push_str(&format!("\n**Summary**: {} affected. **Review bolded high-centrality nodes**. Powered by Lattice graph (Priority 1/3).", analysis.total_affected));
@@ -485,12 +498,8 @@ impl McpServer {
         let mut callees = graph.get_callees(node_idx);
         let centrality = graph.centrality(node_idx);
 
-        callers.sort_by(|a, b| {
-            (&a.file, &a.name, &a.id).cmp(&(&b.file, &b.name, &b.id))
-        });
-        callees.sort_by(|a, b| {
-            (&a.file, &a.name, &a.id).cmp(&(&b.file, &b.name, &b.id))
-        });
+        callers.sort_by(|a, b| (&a.file, &a.name, &a.id).cmp(&(&b.file, &b.name, &b.id)));
+        callees.sort_by(|a, b| (&a.file, &a.name, &a.id).cmp(&(&b.file, &b.name, &b.id)));
 
         // 3. Format Output (The "Architectural Brief" with Markdown Tables)
         let mut brief = String::new();

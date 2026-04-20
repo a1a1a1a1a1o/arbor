@@ -248,14 +248,16 @@ impl ArborParser {
         let compiled = match self.queries.get(&language) {
             Some(compiled) => compiled,
             None => {
-            if fallback_parser::is_fallback_supported_extension(&language) {
-                return Ok(ParseResult {
-                    symbols: fallback_parser::parse_fallback_source(source, file_path, &language),
-                    relations: Vec::new(),
-                    file_path: file_path.to_string(),
-                });
-            }
-            return Err(ParseError::UnsupportedLanguage(file_path.into()));
+                if fallback_parser::is_fallback_supported_extension(&language) {
+                    return Ok(ParseResult {
+                        symbols: fallback_parser::parse_fallback_source(
+                            source, file_path, &language,
+                        ),
+                        relations: Vec::new(),
+                        file_path: file_path.to_string(),
+                    });
+                }
+                return Err(ParseError::UnsupportedLanguage(file_path.into()));
             }
         };
 
@@ -319,8 +321,7 @@ impl ArborParser {
                 let Some(capture_name) = symbol_capture_names.get(capture.index as usize) else {
                     warn!(
                         "Symbol capture index out of bounds (index={} file='{}')",
-                        capture.index,
-                        file_path
+                        capture.index, file_path
                     );
                     continue;
                 };
@@ -408,7 +409,14 @@ impl ArborParser {
         let mut cursor = QueryCursor::new();
 
         // Extract imports
-        self.extract_imports(tree, source, file_path, &mut cursor, &mut relations, compiled);
+        self.extract_imports(
+            tree,
+            source,
+            file_path,
+            &mut cursor,
+            &mut relations,
+            compiled,
+        );
 
         // Extract calls
         self.extract_calls(
@@ -446,8 +454,7 @@ impl ArborParser {
                 let Some(capture_name) = import_capture_names.get(capture.index as usize) else {
                     warn!(
                         "Import capture index out of bounds (index={} file='{}')",
-                        capture.index,
-                        file_path
+                        capture.index, file_path
                     );
                     continue;
                 };
@@ -502,8 +509,7 @@ impl ArborParser {
                 let Some(capture_name) = call_capture_names.get(capture.index as usize) else {
                     warn!(
                         "Call capture index out of bounds (index={} file='{}')",
-                        capture.index,
-                        file_path
+                        capture.index, file_path
                     );
                     continue;
                 };
