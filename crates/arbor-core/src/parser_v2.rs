@@ -13,7 +13,8 @@ use crate::node::{CodeNode, NodeKind};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tracing::warn;
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor, Tree};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -85,7 +86,19 @@ struct CompiledQueries {
 
 impl Default for ArborParser {
     fn default() -> Self {
-        Self::new().expect("Failed to initialize ArborParser")
+        match Self::new() {
+            Ok(parser) => parser,
+            Err(error) => {
+                warn!(
+                    "ArborParser::new failed during default init; continuing with empty query registry: {}",
+                    error
+                );
+                Self {
+                    parser: Parser::new(),
+                    queries: HashMap::new(),
+                }
+            }
+        }
     }
 }
 
@@ -99,7 +112,6 @@ impl ArborParser {
 
         // Compile TypeScript/JavaScript queries
         for ext in &["ts", "tsx", "js", "jsx"] {
-            // We need to recompile for each since Query doesn't implement Clone
             let compiled = Self::compile_typescript_queries()?;
             queries.insert(ext.to_string(), compiled);
         }
@@ -130,10 +142,7 @@ impl ArborParser {
             queries.insert(ext.to_string(), Self::compile_cpp_queries()?);
         }
 
-        // NOTE: Dart queries disabled due to tree-sitter-dart 0.20 incompatibility with
-        // query syntax in tree-sitter 0.22. Dart is still supported via legacy parser.rs path.
-        // TODO: Upgrade when tree-sitter-dart releases 0.22 compatible version.
-
+        // Dart remains on legacy path (queries incompatible with tree-sitter-dart v0.0.4). Registry helper enables trivial future addition.
         // Compile C# queries
         let csharp_queries = Self::compile_csharp_queries()?;
         queries.insert("cs".to_string(), csharp_queries);
@@ -192,10 +201,17 @@ impl ArborParser {
             .map_err(|e| ParseError::ParserError(format!("Failed to set language: {}", e)))?;
 
         // Parse the source
-        let tree = self
-            .parser
-            .parse(&source, None)
-            .ok_or_else(|| ParseError::ParserError("Tree-sitter returned no tree".into()))?;
+        let Some(tree) = self.parser.parse(&source, None) else {
+            warn!(
+                "Tree-sitter returned no tree for file '{}'; returning partial empty parse result",
+                path.to_string_lossy()
+            );
+            return Ok(ParseResult {
+                symbols: Vec::new(),
+                relations: Vec::new(),
+                file_path: path.to_string_lossy().to_string(),
+            });
+        };
 
         let file_path = path.to_string_lossy().to_string();
         let file_name = path
@@ -229,29 +245,37 @@ impl ArborParser {
 
         // Normalize language/extension to lowercase
         let language = language.to_ascii_lowercase();
-        let compiled = self.queries.get(&language);
-
-        if compiled.is_none() {
-            if fallback_parser::is_fallback_supported_extension(&language) {
-                return Ok(ParseResult {
-                    symbols: fallback_parser::parse_fallback_source(source, file_path, &language),
-                    relations: Vec::new(),
-                    file_path: file_path.to_string(),
-                });
+        let compiled = match self.queries.get(&language) {
+            Some(compiled) => compiled,
+            None => {
+                if fallback_parser::is_fallback_supported_extension(&language) {
+                    return Ok(ParseResult {
+                        symbols: fallback_parser::parse_fallback_source(
+                            source, file_path, &language,
+                        ),
+                        relations: Vec::new(),
+                        file_path: file_path.to_string(),
+                    });
+                }
+                return Err(ParseError::UnsupportedLanguage(file_path.into()));
             }
-            return Err(ParseError::UnsupportedLanguage(file_path.into()));
-        }
-
-        let compiled = compiled.unwrap();
+        };
 
         self.parser
             .set_language(&compiled.language)
             .map_err(|e| ParseError::ParserError(format!("Failed to set language: {}", e)))?;
 
-        let tree = self
-            .parser
-            .parse(source, None)
-            .ok_or_else(|| ParseError::ParserError("Tree-sitter returned no tree".into()))?;
+        let Some(tree) = self.parser.parse(source, None) else {
+            warn!(
+                "Tree-sitter returned no tree for in-memory source '{}'; returning partial empty parse result",
+                file_path
+            );
+            return Ok(ParseResult {
+                symbols: Vec::new(),
+                relations: Vec::new(),
+                file_path: file_path.to_string(),
+            });
+        };
 
         let file_name = Path::new(file_path)
             .file_name()
@@ -282,8 +306,10 @@ impl ArborParser {
     ) -> Vec<CodeNode> {
         let mut symbols = Vec::new();
         let mut cursor = QueryCursor::new();
+        let symbol_capture_names = compiled.symbols.capture_names();
+        let source_bytes = source.as_bytes();
 
-        let matches = cursor.matches(&compiled.symbols, tree.root_node(), source.as_bytes());
+        let matches = cursor.matches(&compiled.symbols, tree.root_node(), source_bytes);
 
         for match_ in matches {
             // Extract name and type from captures
@@ -292,9 +318,19 @@ impl ArborParser {
             let mut node = match_.captures.first().map(|c| c.node);
 
             for capture in match_.captures {
-                let capture_name = compiled.symbols.capture_names()[capture.index as usize];
-                let text = capture.node.utf8_text(source.as_bytes()).unwrap_or("");
+                let Some(capture_name) = symbol_capture_names.get(capture.index as usize) else {
+                    warn!(
+                        "Symbol capture index out of bounds (index={} file='{}')",
+                        capture.index, file_path
+                    );
+                    continue;
+                };
 
+                let Some(text) = Self::node_text(capture.node, source_bytes, file_path) else {
+                    continue;
+                };
+
+                let capture_name = *capture_name;
                 match capture_name {
                     "name" | "function.name" | "class.name" | "interface.name" | "method.name" => {
                         name = Some(text);
@@ -335,11 +371,8 @@ impl ArborParser {
                 // Build fully qualified name: filename:symbol_name
                 let qualified_name = format!("{}:{}", file_name, name);
 
-                // Extract signature (first line of the node)
-                let signature = source
-                    .lines()
-                    .nth(node.start_position().row)
-                    .map(|s| s.trim().to_string());
+                // Extract signature from the node slice (avoids scanning from start each time)
+                let signature = Self::first_line_signature(source, node);
 
                 let mut symbol = CodeNode::new(name, &qualified_name, kind, file_path)
                     .with_lines(
@@ -350,7 +383,7 @@ impl ArborParser {
                     .with_bytes(node.start_byte() as u32, node.end_byte() as u32);
 
                 if let Some(sig) = signature {
-                    symbol = symbol.with_signature(sig);
+                    symbol = symbol.with_signature(sig.to_owned());
                 }
 
                 symbols.push(symbol);
@@ -373,12 +406,28 @@ impl ArborParser {
         compiled: &CompiledQueries,
     ) -> Vec<SymbolRelation> {
         let mut relations = Vec::new();
+        let mut cursor = QueryCursor::new();
 
         // Extract imports
-        self.extract_imports(tree, source, file_path, &mut relations, compiled);
+        self.extract_imports(
+            tree,
+            source,
+            file_path,
+            &mut cursor,
+            &mut relations,
+            compiled,
+        );
 
         // Extract calls
-        self.extract_calls(tree, source, file_path, symbols, &mut relations, compiled);
+        self.extract_calls(
+            tree,
+            source,
+            file_path,
+            symbols,
+            &mut cursor,
+            &mut relations,
+            compiled,
+        );
 
         relations
     }
@@ -388,20 +437,33 @@ impl ArborParser {
         tree: &Tree,
         source: &str,
         file_path: &str,
+        cursor: &mut QueryCursor,
         relations: &mut Vec<SymbolRelation>,
         compiled: &CompiledQueries,
     ) {
-        let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&compiled.imports, tree.root_node(), source.as_bytes());
+        let import_capture_names = compiled.imports.capture_names();
+        let source_bytes = source.as_bytes();
+        let file_id = format!("{}:__file__", file_path);
+        let matches = cursor.matches(&compiled.imports, tree.root_node(), source_bytes);
 
         for match_ in matches {
             let mut module_name: Option<&str> = None;
             let mut line: u32 = 0;
 
             for capture in match_.captures {
-                let capture_name = compiled.imports.capture_names()[capture.index as usize];
-                let text = capture.node.utf8_text(source.as_bytes()).unwrap_or("");
+                let Some(capture_name) = import_capture_names.get(capture.index as usize) else {
+                    warn!(
+                        "Import capture index out of bounds (index={} file='{}')",
+                        capture.index, file_path
+                    );
+                    continue;
+                };
 
+                let Some(text) = Self::node_text(capture.node, source_bytes, file_path) else {
+                    continue;
+                };
+
+                let capture_name = *capture_name;
                 match capture_name {
                     "source" | "module" | "import.source" => {
                         // Remove quotes from module name
@@ -414,9 +476,8 @@ impl ArborParser {
 
             if let Some(module) = module_name {
                 // Create a file-level import relation
-                let file_id = format!("{}:__file__", file_path);
                 relations.push(SymbolRelation {
-                    from_id: file_id,
+                    from_id: file_id.clone(),
                     to_name: module.to_string(),
                     kind: RelationType::Imports,
                     line,
@@ -431,28 +492,37 @@ impl ArborParser {
         source: &str,
         file_path: &str,
         symbols: &[CodeNode],
+        cursor: &mut QueryCursor,
         relations: &mut Vec<SymbolRelation>,
         compiled: &CompiledQueries,
     ) {
-        let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&compiled.calls, tree.root_node(), source.as_bytes());
+        let call_capture_names = compiled.calls.capture_names();
+        let source_bytes = source.as_bytes();
+        let file_id = format!("{}:__file__", file_path);
+        let matches = cursor.matches(&compiled.calls, tree.root_node(), source_bytes);
 
         for match_ in matches {
             let mut callee_name: Option<&str> = None;
             let mut call_line: u32 = 0;
 
             for capture in match_.captures {
-                let capture_name = compiled.calls.capture_names()[capture.index as usize];
-                let text = capture.node.utf8_text(source.as_bytes()).unwrap_or("");
+                let Some(capture_name) = call_capture_names.get(capture.index as usize) else {
+                    warn!(
+                        "Call capture index out of bounds (index={} file='{}')",
+                        capture.index, file_path
+                    );
+                    continue;
+                };
 
+                let Some(text) = Self::node_text(capture.node, source_bytes, file_path) else {
+                    continue;
+                };
+
+                let capture_name = *capture_name;
                 match capture_name {
                     "callee" | "function" | "call.function" => {
                         // Handle method calls like obj.method()
-                        if let Some(dot_pos) = text.rfind('.') {
-                            callee_name = Some(&text[dot_pos + 1..]);
-                        } else {
-                            callee_name = Some(text);
-                        }
+                        callee_name = Some(text.rsplit('.').next().unwrap_or(text));
                         call_line = capture.node.start_position().row as u32 + 1;
                     }
                     _ => {}
@@ -464,7 +534,7 @@ impl ArborParser {
                 let caller_id = self
                     .find_enclosing_symbol(call_line, symbols)
                     .map(|s| s.id.clone())
-                    .unwrap_or_else(|| format!("{}:__file__", file_path));
+                    .unwrap_or_else(|| file_id.clone());
 
                 relations.push(SymbolRelation {
                     from_id: caller_id,
@@ -487,14 +557,64 @@ impl ArborParser {
             .min_by_key(|s| s.line_end - s.line_start) // Smallest enclosing
     }
 
+    #[inline]
+    fn node_text<'a>(node: Node<'a>, source_bytes: &'a [u8], file_path: &str) -> Option<&'a str> {
+        match node.utf8_text(source_bytes) {
+            Ok(text) => Some(text),
+            Err(error) => {
+                warn!(
+                    "Skipping invalid UTF-8 capture in file '{}' at row {}: {}",
+                    file_path,
+                    node.start_position().row,
+                    error
+                );
+                None
+            }
+        }
+    }
+
+    #[inline]
+    fn first_line_signature<'a>(source: &'a str, node: Node<'_>) -> Option<&'a str> {
+        let tail = source.get(node.start_byte()..)?;
+        let signature = tail.lines().next()?.trim();
+        if signature.is_empty() {
+            None
+        } else {
+            Some(signature)
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
-    // Query Compilation
+    // Query Registry Helper
+    // Extracts S-expressions into reusable strings. Eliminates duplication across
+    // compile functions. Makes adding new languages trivial (just add compile_xxx).
+    // Aligns with Accessibility (easy extension) and Affordability (less code).
     // ─────────────────────────────────────────────────────────────────────────
+
+    fn compile_queries(
+        language: Language,
+        symbols_query: &str,
+        imports_query: &str,
+        calls_query: &str,
+    ) -> Result<CompiledQueries> {
+        let symbols = Query::new(&language, symbols_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+        let imports = Query::new(&language, imports_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+        let calls = Query::new(&language, calls_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+
+        Ok(CompiledQueries {
+            symbols,
+            imports,
+            calls,
+            language,
+        })
+    }
 
     fn compile_typescript_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_typescript::language_typescript();
 
-        // Symbol extraction query - simplified for tree-sitter-typescript 0.20
         let symbols_query = r#"
             (function_declaration name: (identifier) @name) @function_def
             (class_declaration name: (type_identifier) @name) @class_def
@@ -503,13 +623,11 @@ impl ArborParser {
             (type_alias_declaration name: (type_identifier) @name) @interface_def
         "#;
 
-        // Import query - simplified
         let imports_query = r#"
             (import_statement
                 source: (string) @source)
         "#;
 
-        // Call expression query - simplified
         let calls_query = r#"
             (call_expression
                 function: (identifier) @callee)
@@ -519,25 +637,12 @@ impl ArborParser {
                     property: (property_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_rust_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_rust::language();
 
-        // Simplified for tree-sitter-rust 0.20
         let symbols_query = r#"
             (function_item name: (identifier) @name) @function_def
             (struct_item name: (type_identifier) @name) @struct_def
@@ -545,66 +650,37 @@ impl ArborParser {
             (trait_item name: (type_identifier) @name) @trait_def
         "#;
 
-        // Simplified imports query - just capture use_declaration
         let imports_query = r#"
             (use_declaration) @source
         "#;
 
-        // Simplified calls query
         let calls_query = r#"
             (call_expression function: (identifier) @callee)
             (call_expression function: (field_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_python_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_python::language();
 
-        // Simplified for tree-sitter-python 0.20
         let symbols_query = r#"
             (function_definition name: (identifier) @name) @function_def
             (class_definition name: (identifier) @name) @class_def
         "#;
 
-        // Simplified imports query
         let imports_query = r#"
             (import_statement) @source
             (import_from_statement) @source
         "#;
 
-        // Simplified calls query
         let calls_query = r#"
             (call function: (identifier) @callee)
             (call function: (attribute attribute: (identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_go_queries() -> Result<CompiledQueries> {
@@ -626,19 +702,7 @@ impl ArborParser {
             (call_expression function: (selector_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_java_queries() -> Result<CompiledQueries> {
@@ -659,19 +723,7 @@ impl ArborParser {
             (method_invocation name: (identifier) @callee)
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_c_queries() -> Result<CompiledQueries> {
@@ -692,19 +744,7 @@ impl ArborParser {
             (call_expression function: (identifier) @callee)
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_cpp_queries() -> Result<CompiledQueries> {
@@ -727,19 +767,7 @@ impl ArborParser {
             (call_expression function: (field_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_csharp_queries() -> Result<CompiledQueries> {
@@ -764,24 +792,8 @@ impl ArborParser {
             (invocation_expression function: (member_access_expression name: (identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
-
-    // NOTE: compile_dart_queries() removed - tree-sitter-dart 0.20 is incompatible
-    // with tree-sitter 0.22 query syntax. Dart is still supported via legacy parser.rs.
-    // TODO: Add Dart query support when tree-sitter-dart releases 0.22+ compatible version.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

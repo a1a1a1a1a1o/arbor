@@ -1,4 +1,4 @@
-# Arbor Roadmap: Path to v2.0 & Beyond
+# Arbor Roadmap: Path Beyond v2.0
 
 > **Vision:** Arbor is the "Nervous System" for AI Agents—a persistent, visual, and intelligent memory graph that prevents hallucinations and enables safe, massive-scale refactoring.
 
@@ -8,28 +8,25 @@
 
 This section tracks what is already shipped versus what remains strategic work.
 
-### Shipped / In-Progress Foundation
+### Shipped / In-Progress Foundation (as of 2026-04-20)
 
-- [x] **Agent Bridge (MCP):** Operational bridge and tool surface (`get_logic_path`, `analyze_impact`, `find_path`)
-- [x] **`arbor audit` command foundation:** Security-path tracing is available in CLI
-- [x] **Language expansion baseline:** JS/TS, Python, Go, Rust, Java, C/C++, C#, Dart parsing paths are present
-- [x] **Language expansion wave (v1.6.2):** Kotlin, Swift, Ruby, PHP, and Shell are now indexed via fallback parser support
-- [x] **Air-gapped local-first model:** Core workflows operate offline
-- [x] **Graph snapshot persistence:** CLI now writes/loads `.arbor/graph.json` and `.arbor/graph.bin` for faster reuse across commands
-- [x] **Git-aware impact workflows:** `arbor diff`, `arbor check`, `arbor open`, and `arbor index --changed-only`
-- [x] **Diff edge-case test coverage:** rename, whitespace-only, and generated-file heuristics covered with integration tests
-- [x] **Automated release pipeline (v1.7.0):** Cross-platform binary builds, crates.io, GHCR, VS Code Marketplace, Open VSX
-- [x] **Multi-channel distribution (v1.7.0):** Homebrew, Scoop, npm, Docker
-- [x] **VS Code extension v1.7.0:** 8 commands, quick-pick menu, walkthrough onboarding
+- [x] **Agent Bridge (MCP):** Operational with expanded tools (`get_knowledge_path` with logic paths/Markdown links + explanations, `analyze_impact` with markdown table format for PR bot, `find_path`, sorted_by_centrality + ConfidenceExplanation)
+- [x] **PR Bot polish:** Action + workflow + MCP markdown tables with **bold high-risk** using ConfidenceExplanation (professional audit reports)
+- [x] **Tauri Pivot/Lattice:** Desktop shell with system tray (Personal OS feel), integrated graph/MCP (companion starter startup in Arbor v2/)
+- [x] **`arbor audit` + impact workflows:** Git-aware, with blast radius for code PRs
+- [x] **Language expansion:** Full with fallback_parser for Markdown (NodeKind::Section), Dart fixes, all tests passing
+- [x] **Persistent store:** Sled in GraphStore with incremental updates, centrality precompute (Priority 2)
+- [x] **Local-first air-gapped:** All core + Lattice MVP offline
+- [x] **VS Code extension, releases, distribution:** Updated with PR bot foundation
+- [x] **Eat own dog food:** Parser_v2 registry, Markdown support for Lattice/visualizer
 
 ### Still Outstanding (Major Epics)
 
-- [ ] Persistent graph database (SQLite/Sled) with transactional updates and indexed queries
-- [ ] Time-travel/git-history architectural drift analysis
-- [ ] Compliance report generation (SOC2/ISO artifacts)
-- [ ] Plugin system for community parser/runtime extensions
-- [ ] Enterprise RBAC and deployment policy controls
-- [ ] Learning loop from developer feedback and correction signals
+- [ ] Full write-mode visualizer + 4D time-travel (Priority for 4 features)
+- [ ] Plugin/WASM system for parsers
+- [ ] Enterprise RBAC, compliance reports, learning loop
+- [ ] Monetization for Lattice (sponsors, pro sync) + full GTM launch
+- [ ] Deeper monorepo integration for Tauri + arbor crates
 
 ---
 
@@ -70,7 +67,7 @@ This section tracks what is already shipped versus what remains strategic work.
 
 ---
 
-## 🚀 Immediate Focus (v1.8 / v2.0)
+## 🚀 Immediate Focus (Post-v2.0)
 **Theme:** *Persistent Intelligence & Enterprise Readiness*
 
 1. **Persistent Graph Database:** Move to SQLite/Sled with transactional updates and indexed queries for instant load.

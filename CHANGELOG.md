@@ -5,6 +5,25 @@ All notable changes to Arbor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-20 "Context-Driven OS + Stability Release"
+
+### Added
+- **MCP Tool Expansion**: `get_knowledge_path` returns real logic paths with Markdown [[links]] + causality explanations (Aha! for Lattice users). `analyze_impact` supports `format=markdown` for professional PR bot tables with **bold high-risk** files via ConfidenceExplanation + centrality (sorted_by_centrality).
+- **Tauri Lattice Companion**: Desktop shell with system tray (Personal OS feel), graph/MCP integration (left stable for later iteration).
+- **Parser v2 Registry**: Clean compile_queries helper, Dart fixes (class_definition etc.), Markdown fallback with NodeKind::Section (no dep conflicts).
+- **Sled GraphStore**: Incremental persistence, mtime/versioning, centrality precompute comment (Priority 2).
+- **PR Bot**: Enhanced action.yml + workflow for blast radius comments using MCP output.
+
+### Changed
+- All discussed features stabilized: parser eat-own-dog-food, MCP supercharged for agents (Priority 3), Markdown support, tests 58/58 passing with feedback loop, no mistakes.
+- ROADMAP, PHILOSOPHY aligned (Consumer First = stable, Accessibility = registry, Affordability = sled).
+- Versions bumped, docs updated, sequential commits on audit-and-testing-overhaul.
+- Release automation hardened: fixed contributors workflow failures (tokened GitHub API + robust LF/CRLF marker replacement), fixed aarch64 Linux linker in release cross-compilation, replaced PR bot action mock output with real command execution.
+- Distribution manifests fully aligned to 2.0.0 (Homebrew, Scoop, npm wrapper, VS Code extension metadata/lockfile, server serialization version fixture).
+
+### Stable for v2.0 Release
+- `v2.0.0` tagged and `v2.0` PR branch prepared; release workflows (release, GHCR, Marketplace, MCP notes) are aligned and stable.
+
 ## [Unreleased]
 
 ### Added

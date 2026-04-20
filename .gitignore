@@ -92,3 +92,7 @@ server.json
 
 # Planning logs
 *log.md
+
+# Private startup scaffolding (Lattice - personal knowledge graph starter)
+lattice/
+.lattice.db/

@@ -6,11 +6,11 @@ branding:
 
 inputs:
   command:
-    description: Arbor command to run (without leading 'arbor').
+    description: Arbor command to run (without leading 'arbor'). Supports 'analyze-impact --pr=NNN' for PR Bot blast radius using graph centrality.
     required: false
     default: status .
   arbor-version:
-    description: Arbor CLI version to install (e.g. 1.6.2). Use 'latest' for newest.
+    description: Arbor CLI version to install (e.g. 2.0.0). Use 'latest' for newest.
     required: false
     default: latest
   install-from-source:
@@ -40,9 +40,31 @@ runs:
           cargo install arbor-graph-cli --version "${{ inputs.arbor-version }}" --force
         fi
 
-    - name: Run Arbor command
+    - name: Run Arbor command (with PR Bot support)
       shell: bash
       run: |
         set -euo pipefail
         cd "${{ inputs.working-directory }}"
-        arbor ${{ inputs.command }}
+        if [[ "${{ inputs.command }}" == *"analyze-impact"* ]]; then
+          if arbor ${{ inputs.command }} --format markdown > arbor-impact.md 2>/tmp/arbor-impact.err; then
+            echo "Generated markdown impact report."
+          elif arbor ${{ inputs.command }} > arbor-impact.md 2>/tmp/arbor-impact.err; then
+            echo "Generated text impact report (markdown flag unsupported by this command)."
+          else
+            {
+              echo "## 🧠 Arbor Graph Impact Report"
+              echo
+              echo "Unable to generate impact report."
+              echo
+              echo "Command: \`${{ inputs.command }}\`"
+              echo
+              echo "stderr:"
+              echo '\`\`\`'
+              cat /tmp/arbor-impact.err || true
+              echo '\`\`\`'
+            } > arbor-impact.md
+            echo "::warning::Arbor impact analysis failed; wrote fallback report to arbor-impact.md."
+          fi
+        else
+          arbor ${{ inputs.command }}
+        fi
