@@ -43,6 +43,8 @@ pub enum NodeKind {
     Constructor,
     /// A class field.
     Field,
+    /// A document section or heading (for Markdown knowledge graphs in Lattice).
+    Section,
 }
 
 impl std::fmt::Display for NodeKind {
@@ -62,6 +64,7 @@ impl std::fmt::Display for NodeKind {
             Self::Export => "export",
             Self::Constructor => "constructor",
             Self::Field => "field",
+            Self::Section => "section",
         };
         write!(f, "{}", s)
     }
