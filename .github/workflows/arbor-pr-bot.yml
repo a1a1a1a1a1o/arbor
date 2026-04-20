@@ -1,0 +1,39 @@
+name: Arbor PR Bot - Blast Radius & Governance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  arbor-impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # For full git history/impact
+
+      - name: Run Arbor PR Impact Analysis
+        uses: ./
+        with:
+          command: analyze-impact --pr=${{ github.event.pull_request.number }}
+          install-from-source: true
+          working-directory: .
+
+      - name: Post Blast Radius Comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const impact = fs.readFileSync('arbor-impact.md', 'utf8') || 'No impact report generated. Graph centrality analysis pending full CLI integration.';
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🧠 Arbor Graph Impact Report\n\n**Blast Radius:** High-centrality nodes affected?\n\n${impact}\n\n*Powered by Lattice-style personal governance graph for code. Prevents architectural debt. See https://github.com/arbor/arbor for details.*`
+            });
