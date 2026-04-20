@@ -99,7 +99,6 @@ impl ArborParser {
 
         // Compile TypeScript/JavaScript queries
         for ext in &["ts", "tsx", "js", "jsx"] {
-            // We need to recompile for each since Query doesn't implement Clone
             let compiled = Self::compile_typescript_queries()?;
             queries.insert(ext.to_string(), compiled);
         }
@@ -130,10 +129,7 @@ impl ArborParser {
             queries.insert(ext.to_string(), Self::compile_cpp_queries()?);
         }
 
-        // NOTE: Dart queries disabled due to tree-sitter-dart 0.20 incompatibility with
-        // query syntax in tree-sitter 0.22. Dart is still supported via legacy parser.rs path.
-        // TODO: Upgrade when tree-sitter-dart releases 0.22 compatible version.
-
+        // Dart remains on legacy path (queries incompatible with tree-sitter-dart v0.0.4). Registry helper enables trivial future addition.
         // Compile C# queries
         let csharp_queries = Self::compile_csharp_queries()?;
         queries.insert("cs".to_string(), csharp_queries);
@@ -488,13 +484,36 @@ impl ArborParser {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Query Compilation
+    // Query Registry Helper
+    // Extracts S-expressions into reusable strings. Eliminates duplication across
+    // compile functions. Makes adding new languages trivial (just add compile_xxx).
+    // Aligns with Accessibility (easy extension) and Affordability (less code).
     // ─────────────────────────────────────────────────────────────────────────
+
+    fn compile_queries(
+        language: Language,
+        symbols_query: &str,
+        imports_query: &str,
+        calls_query: &str,
+    ) -> Result<CompiledQueries> {
+        let symbols = Query::new(&language, symbols_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+        let imports = Query::new(&language, imports_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+        let calls = Query::new(&language, calls_query)
+            .map_err(|e| ParseError::QueryError(e.to_string()))?;
+
+        Ok(CompiledQueries {
+            symbols,
+            imports,
+            calls,
+            language,
+        })
+    }
 
     fn compile_typescript_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_typescript::language_typescript();
 
-        // Symbol extraction query - simplified for tree-sitter-typescript 0.20
         let symbols_query = r#"
             (function_declaration name: (identifier) @name) @function_def
             (class_declaration name: (type_identifier) @name) @class_def
@@ -503,13 +522,11 @@ impl ArborParser {
             (type_alias_declaration name: (type_identifier) @name) @interface_def
         "#;
 
-        // Import query - simplified
         let imports_query = r#"
             (import_statement
                 source: (string) @source)
         "#;
 
-        // Call expression query - simplified
         let calls_query = r#"
             (call_expression
                 function: (identifier) @callee)
@@ -519,25 +536,12 @@ impl ArborParser {
                     property: (property_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_rust_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_rust::language();
 
-        // Simplified for tree-sitter-rust 0.20
         let symbols_query = r#"
             (function_item name: (identifier) @name) @function_def
             (struct_item name: (type_identifier) @name) @struct_def
@@ -545,66 +549,37 @@ impl ArborParser {
             (trait_item name: (type_identifier) @name) @trait_def
         "#;
 
-        // Simplified imports query - just capture use_declaration
         let imports_query = r#"
             (use_declaration) @source
         "#;
 
-        // Simplified calls query
         let calls_query = r#"
             (call_expression function: (identifier) @callee)
             (call_expression function: (field_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_python_queries() -> Result<CompiledQueries> {
         let language = tree_sitter_python::language();
 
-        // Simplified for tree-sitter-python 0.20
         let symbols_query = r#"
             (function_definition name: (identifier) @name) @function_def
             (class_definition name: (identifier) @name) @class_def
         "#;
 
-        // Simplified imports query
         let imports_query = r#"
             (import_statement) @source
             (import_from_statement) @source
         "#;
 
-        // Simplified calls query
         let calls_query = r#"
             (call function: (identifier) @callee)
             (call function: (attribute attribute: (identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_go_queries() -> Result<CompiledQueries> {
@@ -626,19 +601,7 @@ impl ArborParser {
             (call_expression function: (selector_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_java_queries() -> Result<CompiledQueries> {
@@ -659,19 +622,7 @@ impl ArborParser {
             (method_invocation name: (identifier) @callee)
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_c_queries() -> Result<CompiledQueries> {
@@ -692,19 +643,7 @@ impl ArborParser {
             (call_expression function: (identifier) @callee)
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_cpp_queries() -> Result<CompiledQueries> {
@@ -727,19 +666,7 @@ impl ArborParser {
             (call_expression function: (field_expression field: (field_identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
 
     fn compile_csharp_queries() -> Result<CompiledQueries> {
@@ -764,24 +691,8 @@ impl ArborParser {
             (invocation_expression function: (member_access_expression name: (identifier) @callee))
         "#;
 
-        let symbols = Query::new(&language, symbols_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let imports = Query::new(&language, imports_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-        let calls = Query::new(&language, calls_query)
-            .map_err(|e| ParseError::QueryError(e.to_string()))?;
-
-        Ok(CompiledQueries {
-            symbols,
-            imports,
-            calls,
-            language,
-        })
+        Self::compile_queries(language, symbols_query, imports_query, calls_query)
     }
-
-    // NOTE: compile_dart_queries() removed - tree-sitter-dart 0.20 is incompatible
-    // with tree-sitter 0.22 query syntax. Dart is still supported via legacy parser.rs.
-    // TODO: Add Dart query support when tree-sitter-dart releases 0.22+ compatible version.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
