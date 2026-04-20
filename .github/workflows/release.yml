@@ -51,9 +51,67 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+  verify-version-sync:
+    name: Verify version sync across manifests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate all release-facing versions match tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED='${{ needs.prepare.outputs.version }}'
+
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+          import tomllib
+          import sys
+
+          expected = "${{ needs.prepare.outputs.version }}"
+          root = pathlib.Path('.')
+
+          mismatches = []
+
+          cargo = tomllib.loads((root / 'Cargo.toml').read_text(encoding='utf-8'))
+          workspace_version = cargo.get('workspace', {}).get('package', {}).get('version')
+          if workspace_version != expected:
+              mismatches.append(("Cargo.toml [workspace.package].version", workspace_version, expected))
+
+          npm_wrapper = json.loads((root / 'packaging' / 'npm' / 'package.json').read_text(encoding='utf-8')).get('version')
+          if npm_wrapper != expected:
+              mismatches.append(("packaging/npm/package.json version", npm_wrapper, expected))
+
+          vscode_ext = json.loads((root / 'extensions' / 'arbor-vscode' / 'package.json').read_text(encoding='utf-8')).get('version')
+          if vscode_ext != expected:
+              mismatches.append(("extensions/arbor-vscode/package.json version", vscode_ext, expected))
+
+          scoop_version = json.loads((root / 'packaging' / 'scoop' / 'arbor.json').read_text(encoding='utf-8')).get('version')
+          if scoop_version != expected:
+              mismatches.append(("packaging/scoop/arbor.json version", scoop_version, expected))
+
+          homebrew_text = (root / 'packaging' / 'homebrew' / 'arbor.rb').read_text(encoding='utf-8')
+          m = re.search(r'^\s*version\s+"([^"]+)"\s*$', homebrew_text, flags=re.MULTILINE)
+          homebrew_version = m.group(1) if m else None
+          if homebrew_version != expected:
+              mismatches.append(("packaging/homebrew/arbor.rb version", homebrew_version, expected))
+
+          if mismatches:
+              print("::error::Version sync check failed.")
+              for path, actual, exp in mismatches:
+                  print(f"::error::{path}: found '{actual}', expected '{exp}'")
+              sys.exit(1)
+
+          print(f"All manifest versions match release tag: {expected}")
+          PY
+
   build:
     name: Build (${{ matrix.target }})
-    needs: prepare
+    needs: [prepare, verify-version-sync]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
