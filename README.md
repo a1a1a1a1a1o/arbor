@@ -188,7 +188,7 @@ Arbor supports production parsing and graph analysis across major ecosystems:
 - Swift (fallback parser)
 - Ruby (fallback parser)
 - PHP (fallback parser)
-- Shell (fallback parser)
+- shell (fallback parser)
 
 Detailed parser notes and expansion guidance:
 
