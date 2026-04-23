@@ -39,7 +39,7 @@ Know what breaks *before* you break it.
 
 ---
 
-## The Arbor Philosophy
+## The Arbor Philosophy .
 
 Arbor is rooted in three unwavering principles, listed in strict order of priority. Every architectural decision is measured against this hierarchy:
 
