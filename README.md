@@ -4,7 +4,7 @@
 
 # Arbor
 
-**Graph-native intelligence for codebases.**
+**Graph-native intelligence for codebases..**
 
 Know what breaks *before* you break it.
 
