@@ -4,12 +4,7 @@
 
 # Arbor
 
-**Graph-native intelligence for codebases.**
-
-Know what breaks *before* you break it.
-
-<p align="center">aaaaaaaaaaaaaaa
-  <a href="https://github.com/Anandb71/arbor/actions"><img src=sadasdas"https://img.shields.io/github/actions/workflow/status/Anandb71/arbor/rust.yml?style=flat-square&label=Rust%20CI" alt="Rust CI" /></a>
+**Graph-
   <a href="https://crates.io/crates/arbor-graph-cli"><img src="https://img.shields.io/crates/v/arbor-graph-cli?style=flat-square&label=crates.io" alt="Crates.io" /></a>
   <a href="https://github.com/Anandb71/arbor/releases"><img src="https://img.shields.io/github/v/release/Anandb71/arbor?style=flat-square&label=release" alt="Latest release" /></a>
   <a href="https://github.com/Anandb71/arbor/pkgs/container/arbor"><img src="https://img.shields.io/badge/GHCR-container-blue?style=flat-square" alt="GHCR" /></a>
